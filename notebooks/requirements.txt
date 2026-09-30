@@ -1,0 +1,4 @@
+# Extra packages for the walkthrough notebook (the pipeline itself needs only PyYAML)
+PyYAML>=6.0
+pandas>=2.0
+jupyter

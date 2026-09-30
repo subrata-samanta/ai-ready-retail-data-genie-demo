@@ -123,6 +123,12 @@ Read the docs in order. Each one shows the real data before and after its step.
 | 10 | [Data dictionary](docs/10-data-dictionary.md) | Every gold column with its comment |
 | 11 | [Data quality](docs/11-data-quality.md) | Rules, findings and the reconciliation test |
 
+New to data engineering? Start with the notebook
+[`notebooks/FreshCart_Data_Transformation_Walkthrough.ipynb`](notebooks/FreshCart_Data_Transformation_Walkthrough.ipynb).
+It teaches the theory first (grain, keys, medallion layers, star schemas, SQL window functions), then rebuilds every
+bronze, silver and gold table from the raw files, one step at a time, explaining each transformation and why it is needed.
+Run it with `pip install -r notebooks/requirements.txt` and `jupyter notebook notebooks/`.
+
 ## Repository map
 
 ```text
@@ -137,6 +143,7 @@ genie/               Genie Agent config, instructions, example queries, benchmar
 databricks/          the Databricks version: setup, Lakeflow pipeline, gold MERGEs, governance, metric views
 tests/               13 tests incl. raw-to-gold reconciliation
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
+notebooks/           beginner walkthrough notebook: theory + every table rebuilt step by step
 ```
 
 ## Design decisions in one list
