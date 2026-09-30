@@ -1,0 +1,98 @@
+# Unity Catalog metric view: freshcart.semantic.inventory_metrics
+# Shows the semi-additive pattern: stock is summed across stores and products,
+# but for any period it is the value on the LAST day of that period, never a sum of days.
+version: 1.1
+comment: >-
+  FreshCart store stock position from nightly snapshots (one row per store, product and day).
+  Use for stock on hand, stock value and out-of-stock questions. Stock levels add up across
+  stores and products but not across days.
+source: freshcart.gold.fct_inventory_daily
+
+joins:
+  - name: dt
+    source: freshcart.gold.dim_date
+    on: source.snapshot_date = dt.calendar_date
+  - name: store
+    source: freshcart.gold.dim_store
+    on: source.store_id = store.store_id
+  - name: product
+    source: freshcart.gold.dim_product
+    on: source.product_id = product.product_id
+
+fields:
+  - name: snapshot_date
+    expr: snapshot_date
+    display_name: Stock Date
+    synonyms: [date, stock date, count date]
+  - name: fiscal_year
+    expr: dt.fiscal_year
+    display_name: Fiscal Year
+  - name: fiscal_week
+    expr: dt.fiscal_week
+    display_name: Fiscal Week
+    synonyms: [week]
+  - name: is_last_completed_fiscal_week
+    expr: dt.is_last_completed_fiscal_week
+    display_name: Last Week
+    synonyms: [last week]
+  - name: is_last_4_completed_fiscal_weeks
+    expr: dt.is_last_4_completed_fiscal_weeks
+    display_name: Last 4 Weeks
+    synonyms: [last 4 weeks, last four weeks]
+  - name: store_name
+    expr: store.store_name
+    display_name: Store
+    synonyms: [store, location]
+  - name: store_format
+    expr: store.store_format
+    display_name: Store Format
+  - name: region
+    expr: store.region
+    display_name: Region
+  - name: department
+    expr: product.department
+    display_name: Department
+  - name: category
+    expr: product.category
+    display_name: Category
+  - name: subcategory
+    expr: product.subcategory
+    display_name: Subcategory
+  - name: brand
+    expr: product.brand
+    display_name: Brand
+  - name: product_name
+    expr: product.product_name
+    display_name: Product
+    synonyms: [item, SKU]
+
+measures:
+  - name: on_hand_units
+    expr: SUM(on_hand_units)
+    display_name: Stock on Hand (Units)
+    comment: Units in stock at close of business on the last day of the selected period.
+    synonyms: [stock, inventory, stock on hand, SOH, stock level]
+    window:
+      - order: snapshot_date
+        range: current
+        semiadditive: last
+  - name: on_hand_value
+    expr: SUM(on_hand_value_usd)
+    display_name: Stock Value
+    comment: Stock at cost on the last day of the selected period, USD.
+    synonyms: [inventory value, stock value, stock at cost]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+    window:
+      - order: snapshot_date
+        range: current
+        semiadditive: last
+  - name: out_of_stock_rate
+    expr: AVG(CASE WHEN is_out_of_stock = true THEN 1.0 ELSE 0.0 END)
+    display_name: Out-of-Stock Rate
+    comment: Share of store-product-days with zero sellable stock for ranged, active products.
+    synonyms: [OOS rate, stockout rate, availability gap]
+    format: {type: percentage, decimal_places: {type: exact, places: 1}}
+  - name: out_of_stock_days
+    expr: COUNT(CASE WHEN is_out_of_stock = true THEN 1 END)
+    display_name: Out-of-Stock Days
+    synonyms: [stockout days, OOS days]
