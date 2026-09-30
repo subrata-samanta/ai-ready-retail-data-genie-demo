@@ -1,0 +1,10 @@
+STR_NBR,STR_NM,CITY,ST_CD,CNTRY,FMT_CD,RGN_CD,OPEN_DT,CLOSE_DT,SQFT
+01042,FreshCart Boston Seaport,Boston,MA,US,SC,02,05/14/2016,,52000
+01107,FreshCart Hartford West,West Hartford,CT,US,EXP,02,10/05/2019,,9500
+09001,FreshCart Newark Fulfilment Center,Newark,NJ,US,DRK,02,03/11/2023,,0
+02210,FreshCart Atlanta Midtown,Atlanta,GA,US,NM,01,08/09/2014,,36000
+02211,FreshCart Atlanta Buckhead,Atlanta,GA,US,EXP,01,03/18/2017,05/30/2026,8800
+02305,FreshCart Chicago Lincoln Park,Chicago,IL,US,SC,03,04/21/2012,,61000
+03050,FreshCart Denver Highlands,Denver,CO,US,NM,04,09/07/2024,,34000
+00317,FreshCart Toronto Liberty Village,Toronto,ON,CA,SC,05,06/02/2018,,55000
+00322,FreshCart Mississauga Square One,Mississauga,ON,CA,EXP,05,06/14/2025,,9200

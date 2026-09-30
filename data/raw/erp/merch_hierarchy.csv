@@ -1,0 +1,31 @@
+MATKL,DEPT_NM,CAT_NM,SUBCAT_NM
+B0101,Bakery,Bread,Sliced Bread
+B0201,Bakery,Sweet Bakery,Pastries and Muffins
+C0412,Grocery,Snacks,Chips and Crisps
+C0413,Grocery,Snacks,Cookies and Biscuits
+C0414,Grocery,Snacks,Chocolate and Candy
+C0421,Grocery,Beverages,Soft Drinks
+C0422,Grocery,Beverages,Coffee and Tea
+C0423,Grocery,Beverages,Bottled Water
+C0431,Grocery,Pantry,Pasta and Rice
+C0432,Grocery,Pantry,Canned Goods
+C0433,Grocery,Pantry,Breakfast Cereal
+D0101,Deli,Deli Counter,Sliced Meats and Cheese
+D0201,Deli,Ready Meals,Prepared Meals
+E0101,Dairy and Eggs,Milk and Cream,Milk
+E0201,Dairy and Eggs,Cheese,Cheese
+E0301,Dairy and Eggs,Eggs,Eggs
+E0401,Dairy and Eggs,Yogurt,Yogurt
+H0101,Household,Cleaning,Laundry
+H0102,Household,Cleaning,Surface Cleaners
+H0201,Household,Paper Goods,Paper Towels
+H0202,Household,Paper Goods,Toilet Tissue
+M0101,Meat and Seafood,Fresh Meat,Beef
+M0102,Meat and Seafood,Fresh Meat,Poultry
+M0201,Meat and Seafood,Seafood,Fresh Fish
+P0101,Produce,Fresh Fruit,Bananas and Tropical
+P0102,Produce,Fresh Fruit,Apples and Pears
+P0103,Produce,Fresh Fruit,Berries
+P0201,Produce,Fresh Vegetables,Salad Greens
+P0202,Produce,Fresh Vegetables,Root Vegetables
+P0203,Produce,Fresh Vegetables,Tomatoes and Peppers

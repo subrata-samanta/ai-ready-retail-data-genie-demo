@@ -1,0 +1,4 @@
+# The demo needs only Python 3.10+ (SQLite 3.38+ is bundled with Python 3.11+) and PyYAML.
+PyYAML>=6.0
+# Optional: run the tests with pytest instead of tests/run_tests.py
+# pytest>=8

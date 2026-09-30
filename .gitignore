@@ -1,0 +1,7 @@
+# local warehouse: rebuilt by `python run_demo.py`
+warehouse/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store

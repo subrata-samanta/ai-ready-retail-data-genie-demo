@@ -1,0 +1,128 @@
+PROMO_CD,PROMO_DESC,MECH_CD,START_DT,END_DT,DISC_PCT
+BG25W01,Pantry Stock-Up - Buy one get one free,BOGO,2025-02-02,2025-02-08,
+BG25W02,Pantry Stock-Up - Buy one get one free,BOGO,2025-02-09,2025-02-15,
+MB25W03,Holiday Hosting - 3 for the price of 2,MULTI,2025-02-16,2025-03-01,
+MB25W03B,Big Brands - 3 for the price of 2,MULTI,2025-02-16,2025-02-22,
+BG25W04,Clean Home - Buy one get one free,BOGO,2025-02-23,2025-03-01,
+BG25W04B,Family Favourites - Buy one get one free,BOGO,2025-02-23,2025-03-01,
+LY25W05,Snack Attack - Members save 15%,LOY,2025-03-02,2025-03-08,15
+BG25W06,Family Favourites - Buy one get one free,BOGO,2025-03-09,2025-03-22,
+MB25W06,Healthy Start - 3 for the price of 2,MULTI,2025-03-09,2025-03-15,
+MB25W07,Summer BBQ - 3 for the price of 2,MULTI,2025-03-16,2025-03-22,
+PC25W08,Fresh Deals - 25% off,PCT,2025-03-23,2025-04-05,25
+MB25W08,Clean Home - 3 for the price of 2,MULTI,2025-03-23,2025-03-29,
+LY25W09,Family Favourites - Members save 15%,LOY,2025-03-30,2025-04-05,15
+LY25W10,Summer BBQ - Members save 15%,LOY,2025-04-06,2025-04-19,15
+MB25W10,Snack Attack - 3 for the price of 2,MULTI,2025-04-06,2025-04-12,
+MB25W11,Snack Attack - 3 for the price of 2,MULTI,2025-04-13,2025-04-26,
+PC25W12,Clean Home - 20% off,PCT,2025-04-20,2025-05-03,20
+BG25W13,Snack Attack - Buy one get one free,BOGO,2025-04-27,2025-05-10,
+MB25W13,Family Favourites - 3 for the price of 2,MULTI,2025-04-27,2025-05-03,
+MB25W14,Pantry Stock-Up - 3 for the price of 2,MULTI,2025-05-04,2025-05-17,
+BG25W15,Weekend Savings - Buy one get one free,BOGO,2025-05-11,2025-05-17,
+MB25W15,Pantry Stock-Up - 3 for the price of 2,MULTI,2025-05-11,2025-05-17,
+PC25W16,Game Day - 20% off,PCT,2025-05-18,2025-05-24,20
+BG25W17,Back to School - Buy one get one free,BOGO,2025-05-25,2025-05-31,
+MB25W17,Pantry Stock-Up - 3 for the price of 2,MULTI,2025-05-25,2025-05-31,
+PC25W18,Healthy Start - 20% off,PCT,2025-06-01,2025-06-07,20
+LY25W18,Fresh Deals - Members save 15%,LOY,2025-06-01,2025-06-07,15
+LY25W19,Healthy Start - Members save 15%,LOY,2025-06-08,2025-06-14,15
+PC25W19,Big Brands - 30% off,PCT,2025-06-08,2025-06-14,30
+PC25W20,Weekend Savings - 20% off,PCT,2025-06-15,2025-06-28,20
+LY25W21,Snack Attack - Members save 15%,LOY,2025-06-22,2025-06-28,15
+PC25W21,Game Day - 30% off,PCT,2025-06-22,2025-07-05,30
+MB25W22,Back to School - 3 for the price of 2,MULTI,2025-06-29,2025-07-05,
+LY25W22,Game Day - Members save 15%,LOY,2025-06-29,2025-07-05,15
+LY25W23,Summer BBQ - Members save 15%,LOY,2025-07-06,2025-07-12,15
+MB25W24,Weekend Savings - 3 for the price of 2,MULTI,2025-07-13,2025-07-26,
+PC25W25,Back to School - 30% off,PCT,2025-07-20,2025-07-26,30
+LY25W25,Snack Attack - Members save 15%,LOY,2025-07-20,2025-07-26,15
+PC25W26,Game Day - 25% off,PCT,2025-07-27,2025-08-09,25
+PC25W26B,Game Day - 30% off,PCT,2025-07-27,2025-08-02,30
+LY25W27,Back to School - Members save 15%,LOY,2025-08-03,2025-08-09,15
+LY25W27B,Clean Home - Members save 15%,LOY,2025-08-03,2025-08-09,15
+MB25W28,Holiday Hosting - 3 for the price of 2,MULTI,2025-08-10,2025-08-16,
+LY25W28,Pantry Stock-Up - Members save 15%,LOY,2025-08-10,2025-08-16,15
+MB25W29,Back to School - 3 for the price of 2,MULTI,2025-08-17,2025-08-23,
+MB25W29B,Back to School - 3 for the price of 2,MULTI,2025-08-17,2025-08-30,
+LY25W30,Snack Attack - Members save 15%,LOY,2025-08-24,2025-08-30,15
+BG25W31,Big Brands - Buy one get one free,BOGO,2025-08-31,2025-09-06,
+MB25W32,Clean Home - 3 for the price of 2,MULTI,2025-09-07,2025-09-13,
+PC25W32,Game Day - 25% off,PCT,2025-09-07,2025-09-20,25
+PC25W33,Summer BBQ - 20% off,PCT,2025-09-14,2025-09-27,20
+PC25W34,Healthy Start - 30% off,PCT,2025-09-21,2025-09-27,30
+LY25W35,Family Favourites - Members save 15%,LOY,2025-09-28,2025-10-04,15
+BG25W35,Clean Home - Buy one get one free,BOGO,2025-09-28,2025-10-04,
+MB25W36,Holiday Hosting - 3 for the price of 2,MULTI,2025-10-05,2025-10-11,
+BG25W36,Game Day - Buy one get one free,BOGO,2025-10-05,2025-10-18,
+MB25W37,Clean Home - 3 for the price of 2,MULTI,2025-10-12,2025-10-25,
+BG25W38,Healthy Start - Buy one get one free,BOGO,2025-10-19,2025-10-25,
+PC25W38,Summer BBQ - 30% off,PCT,2025-10-19,2025-10-25,30
+BG25W39,Big Brands - Buy one get one free,BOGO,2025-10-26,2025-11-01,
+PC25W39,Weekend Savings - 25% off,PCT,2025-10-26,2025-11-01,25
+MB25W40,Healthy Start - 3 for the price of 2,MULTI,2025-11-02,2025-11-08,
+LY25W41,Game Day - Members save 15%,LOY,2025-11-09,2025-11-15,15
+PC25W42,Holiday Hosting - 30% off,PCT,2025-11-16,2025-11-29,30
+PC25W43,Snack Attack - 20% off,PCT,2025-11-23,2025-12-06,20
+PC25W44,Summer BBQ - 25% off,PCT,2025-11-30,2025-12-06,25
+LY25W44,Pantry Stock-Up - Members save 15%,LOY,2025-11-30,2025-12-06,15
+BG25W45,Pantry Stock-Up - Buy one get one free,BOGO,2025-12-07,2025-12-13,
+PC25W45,Fresh Deals - 25% off,PCT,2025-12-07,2025-12-13,25
+LY25W46,Family Favourites - Members save 15%,LOY,2025-12-14,2025-12-27,15
+PC25W47,Snack Attack - 30% off,PCT,2025-12-21,2026-01-03,30
+BG25W48,Back to School - Buy one get one free,BOGO,2025-12-28,2026-01-10,
+PC25W49,Fresh Deals - 30% off,PCT,2026-01-04,2026-01-10,30
+PC25W49B,Summer BBQ - 30% off,PCT,2026-01-04,2026-01-17,30
+MB25W50,Weekend Savings - 3 for the price of 2,MULTI,2026-01-11,2026-01-17,
+LY25W51,Summer BBQ - Members save 15%,LOY,2026-01-18,2026-01-31,15
+BG25W51,Healthy Start - Buy one get one free,BOGO,2026-01-18,2026-01-24,
+BG25W52,Pantry Stock-Up - Buy one get one free,BOGO,2026-01-25,2026-02-07,
+PC25W52,Back to School - 30% off,PCT,2026-01-25,2026-02-07,30
+BG26W01,Big Brands - Buy one get one free,BOGO,2026-02-01,2026-02-07,
+MB26W01,Clean Home - 3 for the price of 2,MULTI,2026-02-01,2026-02-14,
+BG26W02,Fresh Deals - Buy one get one free,BOGO,2026-02-08,2026-02-21,
+MB26W02,Snack Attack - 3 for the price of 2,MULTI,2026-02-08,2026-02-14,
+PC26W03,Healthy Start - 25% off,PCT,2026-02-15,2026-02-21,25
+PC26W04,Fresh Deals - 20% off,PCT,2026-02-22,2026-02-28,20
+PC26W04B,Game Day - 20% off,PCT,2026-02-22,2026-03-07,20
+BG26W05,Snack Attack - Buy one get one free,BOGO,2026-03-01,2026-03-14,
+PC26W06,Holiday Hosting - 20% off,PCT,2026-03-08,2026-03-14,20
+MB26W06,Healthy Start - 3 for the price of 2,MULTI,2026-03-08,2026-03-21,
+LY26W07,Snack Attack - Members save 15%,LOY,2026-03-15,2026-03-21,15
+MB26W08,Big Brands - 3 for the price of 2,MULTI,2026-03-22,2026-04-04,
+LY26W08,Game Day - Members save 15%,LOY,2026-03-22,2026-04-04,15
+BG26W09,Family Favourites - Buy one get one free,BOGO,2026-03-29,2026-04-04,
+BG26W10,Family Favourites - Buy one get one free,BOGO,2026-04-05,2026-04-18,
+PC26W11,Snack Attack - 30% off,PCT,2026-04-12,2026-04-18,30
+PC26W12,Healthy Start - 20% off,PCT,2026-04-19,2026-05-02,20
+MB26W13,Weekend Savings - 3 for the price of 2,MULTI,2026-04-26,2026-05-09,
+PC26W13,Summer BBQ - 20% off,PCT,2026-04-26,2026-05-02,20
+PC26W14,Fresh Deals - 30% off,PCT,2026-05-03,2026-05-09,30
+LY26W14,Healthy Start - Members save 15%,LOY,2026-05-03,2026-05-09,15
+PC26W15,Pantry Stock-Up - 25% off,PCT,2026-05-10,2026-05-16,25
+PC26W16,Game Day - 25% off,PCT,2026-05-17,2026-05-23,25
+PC26W17,Game Day - 25% off,PCT,2026-05-24,2026-05-30,25
+LY26W18,Pantry Stock-Up - Members save 15%,LOY,2026-05-31,2026-06-13,15
+MB26W19,Fresh Deals - 3 for the price of 2,MULTI,2026-06-07,2026-06-20,
+LY26W19,Snack Attack - Members save 15%,LOY,2026-06-07,2026-06-13,15
+BG26W20,Big Brands - Buy one get one free,BOGO,2026-06-14,2026-06-27,
+BG26W21,Pantry Stock-Up - Buy one get one free,BOGO,2026-06-21,2026-06-27,
+PC26W22,Back to School - 20% off,PCT,2026-06-28,2026-07-04,20
+PC26W22B,Holiday Hosting - 30% off,PCT,2026-06-28,2026-07-04,30
+PC26W23,Clean Home - 25% off,PCT,2026-07-05,2026-07-11,25
+BG26W24,Summer BBQ - Buy one get one free,BOGO,2026-07-12,2026-07-18,
+PC26W24,Summer BBQ - 30% off,PCT,2026-07-12,2026-07-18,30
+PC26W25,Summer BBQ - 30% off,PCT,2026-07-19,2026-07-25,30
+PC26W25B,Weekend Savings - 30% off,PCT,2026-07-19,2026-08-01,30
+MB26W26,Family Favourites - 3 for the price of 2,MULTI,2026-07-26,2026-08-08,
+PC26W27,Summer BBQ - 20% off,PCT,2026-08-02,2026-08-08,20
+LY26W27,Game Day - Members save 15%,LOY,2026-08-02,2026-08-08,15
+PC26W28,Pantry Stock-Up - 20% off,PCT,2026-08-09,2026-08-15,20
+PC26W29,Family Favourites - 30% off,PCT,2026-08-16,2026-08-29,30
+PC26W30,Clean Home - 25% off,PCT,2026-08-23,2026-09-05,25
+BG26W31,Summer BBQ - Buy one get one free,BOGO,2026-08-30,2026-09-05,
+PC26W31,Big Brands - 30% off,PCT,2026-08-30,2026-09-12,30
+PC26W32,Pantry Stock-Up - 25% off,PCT,2026-09-06,2026-09-19,25
+MB26W33,Holiday Hosting - 3 for the price of 2,MULTI,2026-09-13,2026-09-19,
+PC26W34,Back to School - 20% off,PCT,2026-09-20,2026-09-26,20
+BG26W33,Snack Attack - Buy one get one free,BOGO,2026-09-13,2026-09-19,
