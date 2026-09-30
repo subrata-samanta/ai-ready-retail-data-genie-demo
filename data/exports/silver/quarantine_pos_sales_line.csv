@@ -1,0 +1,40 @@
+failure_reason,raw_str_nbr,transaction_id,line_number,raw_trx_dt,product_id,raw_qty,_source_file,_row_number
+missing store number,,70002830,4,20250401,4472002,1,pos/pos_tlog_202504.csv,122
+missing store number,,70014624,1,20251106,94101,1,pos/pos_tlog_202511.csv,978
+missing store number,,70015300,2,20251117,4482002,1,pos/pos_tlog_202511.csv,2980
+missing store number,,70015910,2,20251128,4481001,1,pos/pos_tlog_202511.csv,4743
+missing store number,,70003362,3,20250412,4471024,1,pos/pos_tlog_202504.csv,1671
+missing store number,,70003734,1,20250420,5103,1,pos/pos_tlog_202504.csv,2760
+missing store number,,70003038,2,20250405,5102,2,pos/pos_tlog_202504.csv,719
+missing store number,,70003476,2,20250414,4471030,1,pos/pos_tlog_202504.csv,1975
+missing store number,,70015116,4,20251114,4482002,1,pos/pos_tlog_202511.csv,2444
+missing store number,,70028945,3,20260708,561001,1,pos/pos_tlog_202607.csv,1272
+missing store number,,70029148,2,20260711,30203,3,pos/pos_tlog_202607.csv,1857
+missing store number,,70014671,2,20251107,5102,1,pos/pos_tlog_202511.csv,1129
+missing store number,,70015504,1,20251120,4492001,2,pos/pos_tlog_202511.csv,3570
+missing store number,,70029524,2,20260718,562001,1,pos/pos_tlog_202607.csv,2923
+missing store number,,70029683,1,20260720,551020,3,pos/pos_tlog_202607.csv,3369
+missing store number,,70030245,1,20260730,552001,2,pos/pos_tlog_202607.csv,4986
+missing store number,,70003046,4,20250406,4481001,1,pos/pos_tlog_202504.csv,745
+missing store number,,70030057,1,20260726,5302,1,pos/pos_tlog_202607.csv,4444
+implausible quantity: 9999,00317,70015881,2,20251127,5103,9999,pos/pos_tlog_202511.csv,4661
+invalid transaction date: 20260230,00317,70028618,2,20260230,561001,1,pos/pos_tlog_202607.csv,291
+implausible quantity: 9999,00317,70002831,6,20250401,4493002,9999,pos/pos_tlog_202504.csv,129
+invalid transaction date: 20260230,00317,70029798,1,20260230,4492001,1,pos/pos_tlog_202607.csv,3691
+invalid transaction date: 20260230,00322,70028829,4,20260230,5302,1,pos/pos_tlog_202607.csv,932
+invalid transaction date: 20250230,00322,70014657,2,20250230,5301,2,pos/pos_tlog_202511.csv,1085
+implausible quantity: 9999,00322,70030338,3,20260731,20202,9999,pos/pos_tlog_202607.csv,5254
+invalid transaction date: 20250230,01042,70015416,2,20250230,20103,2,pos/pos_tlog_202511.csv,3341
+implausible quantity: 9999,01042,70029932,1,20260725,20103,9999,pos/pos_tlog_202607.csv,4045
+invalid transaction date: 20250230,01107,70003151,1,20250230,4473001,1,pos/pos_tlog_202504.csv,1050
+implausible quantity: 9999,01107,70029768,6,20260722,4473001,9999,pos/pos_tlog_202607.csv,3609
+invalid transaction date: 20250230,01107,70004161,4,20250230,4472001,2,pos/pos_tlog_202504.csv,4055
+implausible quantity: 9999,02210,70003068,1,20250406,552002,9999,pos/pos_tlog_202504.csv,809
+invalid transaction date: 20250230,02210,70015663,4,20250230,94103,2,pos/pos_tlog_202511.csv,4016
+implausible quantity: 9999,02211,70003902,1,20250424,4483001,9999,pos/pos_tlog_202504.csv,3268
+invalid transaction date: 20250230,02211,70003773,3,20250230,4482001,1,pos/pos_tlog_202504.csv,2877
+implausible quantity: 9999,02305,70015622,4,20251122,93402,9999,pos/pos_tlog_202511.csv,3900
+invalid transaction date: 20250230,02305,70014394,3,20250230,40201,3,pos/pos_tlog_202511.csv,318
+invalid transaction date: 20260230,02305,70029306,1,20260230,20102,2,pos/pos_tlog_202607.csv,2288
+implausible quantity: 9999,02305,70016059,2,20251130,551021,9999,pos/pos_tlog_202511.csv,5218
+invalid transaction date: 20250230,03050,70003911,2,20250230,4472002,1,pos/pos_tlog_202504.csv,3297

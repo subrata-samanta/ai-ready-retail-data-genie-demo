@@ -1,0 +1,11 @@
+store_id,store_name,store_format,city,state_province,country,region,open_date,open_fiscal_year,close_date,store_status,selling_area_sqft,comparable_from_fiscal_year,is_comparable_store_current_fy
+1042,FreshCart Boston Seaport,Supercenter,Boston,Massachusetts,United States,Northeast,2016-05-14,2016,,Open,52000,2018,1
+1107,FreshCart Hartford West,Express,West Hartford,Connecticut,United States,Northeast,2019-10-05,2019,,Open,9500,2021,1
+2210,FreshCart Atlanta Midtown,Neighborhood Market,Atlanta,Georgia,United States,Southeast,2014-08-09,2014,,Open,36000,2016,1
+2211,FreshCart Atlanta Buckhead,Express,Atlanta,Georgia,United States,Southeast,2017-03-18,2017,2026-05-30,Closed,8800,2019,0
+2305,FreshCart Chicago Lincoln Park,Supercenter,Chicago,Illinois,United States,Midwest,2012-04-21,2012,,Open,61000,2014,1
+3050,FreshCart Denver Highlands,Neighborhood Market,Denver,Colorado,United States,West,2024-09-07,2024,,Open,34000,2026,1
+317,FreshCart Toronto Liberty Village,Supercenter,Toronto,Ontario,Canada,Canada,2018-06-02,2018,,Open,55000,2020,1
+322,FreshCart Mississauga Square One,Express,Mississauga,Ontario,Canada,Canada,2025-06-14,2025,,Open,9200,2027,0
+9001,FreshCart Newark Fulfilment Center,Dark Store,Newark,New Jersey,United States,Northeast,2023-03-11,2023,,Open,0,,0
+UNKNOWN,Unknown store,Unknown,,,,Unknown,,,,Unknown,,,0

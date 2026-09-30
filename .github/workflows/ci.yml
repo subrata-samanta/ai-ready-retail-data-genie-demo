@@ -1,0 +1,19 @@
+name: demo
+on:
+  push:
+  pull_request:
+jobs:
+  run-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Pipeline, checks, benchmarks, docs
+        run: python run_demo.py
+      - name: Tests
+        run: python tests/run_tests.py
+      - name: Docs are up to date
+        run: git diff --exit-code -- docs README.md databricks

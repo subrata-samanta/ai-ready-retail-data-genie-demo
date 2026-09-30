@@ -1,0 +1,84 @@
+product_id,product_name,brand,department,category,subcategory,unit_of_measure,is_private_label,product_status
+20101,White Sandwich Bread 675g,FreshCart,Bakery,Bread,Sliced Bread,Each,1,Active
+20102,Whole Wheat Bread 675g,Baker's Row,Bakery,Bread,Sliced Bread,Each,0,Active
+20103,Sourdough Loaf,FreshCart Select,Bakery,Bread,Sliced Bread,Each,1,Active
+20201,Butter Croissants 4pk,FreshCart Select,Bakery,Sweet Bakery,Pastries and Muffins,Each,1,Active
+20202,Blueberry Muffins 4pk,Baker's Row,Bakery,Sweet Bakery,Pastries and Muffins,Each,0,Active
+20203,Cinnamon Rolls 6pk,Baker's Row,Bakery,Sweet Bakery,Pastries and Muffins,Each,0,Discontinued
+30101,Ground Beef 85% 500g,FreshCart,Meat and Seafood,Fresh Meat,Beef,Each,1,Active
+30102,Ribeye Steak 340g,Prairie Gold,Meat and Seafood,Fresh Meat,Beef,Each,0,Active
+30103,Stewing Beef 450g,Prairie Gold,Meat and Seafood,Fresh Meat,Beef,Each,0,Active
+30201,Chicken Breasts 700g,FreshCart,Meat and Seafood,Fresh Meat,Poultry,Each,1,Active
+30202,Whole Chicken,Prairie Gold,Meat and Seafood,Fresh Meat,Poultry,Each,0,Active
+30203,Chicken Thighs 900g,FreshCart,Meat and Seafood,Fresh Meat,Poultry,Each,1,Active
+31101,Atlantic Salmon Fillet,Coastline,Meat and Seafood,Seafood,Fresh Fish,Kilogram,0,Active
+31102,Cod Fillet,Coastline,Meat and Seafood,Seafood,Fresh Fish,Kilogram,0,Active
+40101,Smoked Turkey Breast,FreshCart Select,Deli,Deli Counter,Sliced Meats and Cheese,Kilogram,1,Active
+40102,Black Forest Ham,Old Mill Deli,Deli,Deli Counter,Sliced Meats and Cheese,Kilogram,0,Active
+40201,Chicken Caesar Salad Bowl,FreshCart,Deli,Ready Meals,Prepared Meals,Each,1,Active
+40202,Lasagna Family Tray,FreshCart Select,Deli,Ready Meals,Prepared Meals,Each,1,Active
+40203,Sushi Combo 12pc,Harbor Sushi,Deli,Ready Meals,Prepared Meals,Each,0,Active
+4471023,Crunchy Sea Salt Chips 200g,Crunchwell,Grocery,Snacks,Chips and Crisps,Each,0,Active
+4471024,BBQ Kettle Chips 200g,Crunchwell,Grocery,Snacks,Chips and Crisps,Each,0,Discontinued
+4471030,Tortilla Chips 300g,Golden Hollow,Grocery,Snacks,Chips and Crisps,Each,0,Active
+4471040,Lightly Salted Chips 200g,FreshCart,Grocery,Snacks,Chips and Crisps,Each,1,Active
+4472001,Chocolate Chip Cookies 300g,Golden Hollow,Grocery,Snacks,Cookies and Biscuits,Each,0,Active
+4472002,Butter Shortbread 250g,FreshCart Select,Grocery,Snacks,Cookies and Biscuits,Each,1,Active
+4472003,Oat Crunch Biscuits 400g,Golden Hollow,Grocery,Snacks,Cookies and Biscuits,Each,0,Active
+4472050,Maple Leaf Cream Cookies 350g,Golden Hollow,Grocery,Snacks,Cookies and Biscuits,Each,0,Active
+4473001,Dark Chocolate Bar 100g,Velvet Peak,Grocery,Snacks,Chocolate and Candy,Each,0,Active
+4473002,Milk Chocolate Bar 100g,Velvet Peak,Grocery,Snacks,Chocolate and Candy,Each,0,Active
+4473003,Gummy Bears 350g,Candy Lane,Grocery,Snacks,Chocolate and Candy,Each,0,Active
+4481001,Cola 12x355ml,Brightfizz,Grocery,Beverages,Soft Drinks,Each,0,Active
+4481002,Lemon Lime Soda 12x355ml,Brightfizz,Grocery,Beverages,Soft Drinks,Each,0,Discontinued
+4481003,Sparkling Water Lime 8pk,FreshCart,Grocery,Beverages,Soft Drinks,Each,1,Active
+4482001,Medium Roast Ground Coffee 925g,Morning Harbor,Grocery,Beverages,Coffee and Tea,Each,0,Active
+4482002,Espresso Beans 1kg,FreshCart Select,Grocery,Beverages,Coffee and Tea,Each,1,Active
+4482003,Orange Pekoe Tea 72pk,Morning Harbor,Grocery,Beverages,Coffee and Tea,Each,0,Active
+4483001,Spring Water 24x500ml,Summit Spring,Grocery,Beverages,Bottled Water,Each,0,Active
+4483002,Spring Water 24x500ml,FreshCart,Grocery,Beverages,Bottled Water,Each,1,Active
+4491001,Spaghetti 900g,Pantry Lane,Grocery,Pantry,Pasta and Rice,Each,0,Active
+4491002,Basmati Rice 2kg,FreshCart,Grocery,Pantry,Pasta and Rice,Each,1,Active
+4491003,Penne 900g,FreshCart,Grocery,Pantry,Pasta and Rice,Each,1,Active
+4492001,Diced Tomatoes 796ml,FreshCart,Grocery,Pantry,Canned Goods,Each,1,Active
+4492002,Chickpeas 540ml,Pantry Lane,Grocery,Pantry,Canned Goods,Each,0,Active
+4492003,Tuna Chunks 170g,Coastline,Grocery,Pantry,Canned Goods,Each,0,Active
+4492050,Maple Baked Beans 398ml,Pantry Lane,Grocery,Pantry,Canned Goods,Each,0,Active
+4493001,Honey Oat Clusters 500g,Harvest Moon,Grocery,Pantry,Breakfast Cereal,Each,0,Active
+4493002,Corn Flakes 750g,FreshCart,Grocery,Pantry,Breakfast Cereal,Each,1,Active
+5012,Whole Milk 4L,FreshCart,Dairy and Eggs,Milk and Cream,Milk,Each,1,Active
+5013,2% Milk 4L,FreshCart,Dairy and Eggs,Milk and Cream,Milk,Each,1,Active
+5020,Oat Beverage 1.75L,Northfield,Dairy and Eggs,Milk and Cream,Milk,Each,0,Active
+5101,Aged Cheddar 400g,Northfield,Dairy and Eggs,Cheese,Cheese,Each,0,Active
+5102,Mozzarella 320g,FreshCart,Dairy and Eggs,Cheese,Cheese,Each,1,Active
+5103,Brie 200g,FreshCart Select,Dairy and Eggs,Cheese,Cheese,Each,1,Active
+5201,Large Eggs 12pk,FreshCart,Dairy and Eggs,Eggs,Eggs,Each,1,Active
+5202,Free Range Eggs 12pk,Sunny Acres,Dairy and Eggs,Eggs,Eggs,Each,0,Active
+5301,Greek Yogurt Plain 750g,Northfield,Dairy and Eggs,Yogurt,Yogurt,Each,0,Active
+5302,Vanilla Yogurt 4pk,FreshCart,Dairy and Eggs,Yogurt,Yogurt,Each,1,Active
+551020,Laundry Detergent 2.95L,Clearbright,Household,Cleaning,Laundry,Each,0,Active
+551021,Laundry Pods 42ct,FreshCart,Household,Cleaning,Laundry,Each,1,Active
+552001,Multi-Surface Spray 950ml,Clearbright,Household,Cleaning,Surface Cleaners,Each,0,Active
+552002,Disinfecting Wipes 80ct,FreshCart,Household,Cleaning,Surface Cleaners,Each,1,Active
+561001,Paper Towels 6 Rolls,SoftLeaf,Household,Paper Goods,Paper Towels,Each,0,Active
+561002,Paper Towels 6 Rolls,FreshCart,Household,Paper Goods,Paper Towels,Each,1,Active
+562001,Toilet Tissue 12 Rolls,SoftLeaf,Household,Paper Goods,Toilet Tissue,Each,0,Active
+562002,Toilet Tissue 12 Rolls,FreshCart,Household,Paper Goods,Toilet Tissue,Each,1,Active
+93321,Bananas,Sunny Acres,Produce,Fresh Fruit,Bananas and Tropical,Kilogram,0,Active
+93322,Organic Bananas,FreshCart Select,Produce,Fresh Fruit,Bananas and Tropical,Kilogram,1,Active
+93325,Mangoes,Sunny Acres,Produce,Fresh Fruit,Bananas and Tropical,Kilogram,0,Active
+93401,Honeycrisp Apples,Maple Ridge Farms,Produce,Fresh Fruit,Apples and Pears,Kilogram,0,Active
+93402,Gala Apples,FreshCart,Produce,Fresh Fruit,Apples and Pears,Kilogram,1,Active
+93410,Bartlett Pears,Maple Ridge Farms,Produce,Fresh Fruit,Apples and Pears,Kilogram,0,Active
+93501,Strawberries 450g,Sunny Acres,Produce,Fresh Fruit,Berries,Each,0,Active
+93502,Blueberries 170g,Sunny Acres,Produce,Fresh Fruit,Berries,Each,0,Active
+93503,Raspberries 170g,FreshCart Select,Produce,Fresh Fruit,Berries,Each,1,Active
+94101,Spring Mix 142g,FreshCart,Produce,Fresh Vegetables,Salad Greens,Each,1,Active
+94102,Romaine Hearts 3pk,Green Valley,Produce,Fresh Vegetables,Salad Greens,Each,0,Active
+94103,Baby Spinach 142g,Green Valley,Produce,Fresh Vegetables,Salad Greens,Each,0,Active
+94201,Carrots,FreshCart,Produce,Fresh Vegetables,Root Vegetables,Kilogram,1,Active
+94202,Yellow Onions,Green Valley,Produce,Fresh Vegetables,Root Vegetables,Kilogram,0,Active
+94203,Russet Potatoes,Green Valley,Produce,Fresh Vegetables,Root Vegetables,Kilogram,0,Active
+94301,Vine Tomatoes,Green Valley,Produce,Fresh Vegetables,Tomatoes and Peppers,Kilogram,0,Active
+94302,Red Bell Peppers,Green Valley,Produce,Fresh Vegetables,Tomatoes and Peppers,Kilogram,0,Active
+UNKNOWN,Unknown product,,Unknown,Unknown,Unknown,Each,0,Unknown
