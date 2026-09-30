@@ -1,0 +1,12 @@
+table: dim_promotion
+comment: >-
+  One row per promotion, plus NO_PROMO for lines sold at full price. Use to group sales by
+  promotion or promotion mechanic.
+primary_key: [promotion_id]
+tags: {domain: retail_performance, grain: promotion}
+columns:
+  - {name: promotion_id, type: STRING, nullable: false, comment: "Promotion code, for example BG26W33, or NO_PROMO."}
+  - {name: promotion_name, type: STRING, nullable: false, comment: "Promotion description shown in marketing, for example Snack Attack - Buy one get one free."}
+  - {name: promotion_mechanic, type: STRING, nullable: false, comment: "Buy One Get One, Percent Off, Multi-buy, Loyalty Price, or No Promotion."}
+  - {name: start_date, type: DATE, comment: "First day the promotion runs."}
+  - {name: end_date, type: DATE, comment: "Last day the promotion runs."}

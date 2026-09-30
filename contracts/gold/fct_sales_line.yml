@@ -1,0 +1,39 @@
+table: fct_sales_line
+comment: >-
+  Sales fact. One row per sold or returned item line on a FreshCart receipt or online order
+  (voids, cancelled orders and training transactions excluded), since FY2025. Answers
+  questions about sales, revenue, units, baskets, margin, returns, promotions and loyalty by
+  day, store and product. All amounts are USD and exclude sales tax unless the column name
+  says local.
+primary_key: [sales_line_id]
+cluster_by: [sales_date, store_id]
+tags: {domain: retail_performance, grain: sales_line, genie_ready: "true"}
+column_tags: {region: {purpose: security_only}}
+foreign_keys:
+  - {column: sales_date,   references: dim_date,      ref_column: calendar_date}
+  - {column: store_id,     references: dim_store,     ref_column: store_id}
+  - {column: product_id,   references: dim_product,   ref_column: product_id}
+  - {column: customer_id,  references: dim_customer,  ref_column: customer_id}
+  - {column: promotion_id, references: dim_promotion, ref_column: promotion_id}
+columns:
+  - {name: sales_line_id, type: STRING, nullable: false, comment: "Unique id of the line: channel, store or order, receipt and line number."}
+  - {name: transaction_id, type: STRING, nullable: false, comment: "Receipt or online order id. COUNT(DISTINCT transaction_id) gives transactions (baskets)."}
+  - {name: sales_date, type: DATE, nullable: false, comment: "Business date of the sale in store local time. Join to dim_date.calendar_date for fiscal periods."}
+  - {name: store_id, type: STRING, nullable: false, comment: "Selling store; for online orders, the fulfilling store or Dark Store."}
+  - {name: product_id, type: STRING, nullable: false, comment: "Product sold or returned. UNKNOWN if the item was not in the product master."}
+  - {name: customer_id, type: STRING, nullable: false, comment: "Pseudonymous loyalty customer id, or ANONYMOUS when no card was scanned."}
+  - {name: promotion_id, type: STRING, nullable: false, comment: "Promotion applied to the line, or NO_PROMO."}
+  - {name: region, type: STRING, nullable: false, comment: "Copy of dim_store.region used only for row-level security. Use dim_store.region for analysis."}
+  - {name: sales_channel, type: STRING, nullable: false, comment: "In-store or Online."}
+  - {name: line_type, type: STRING, nullable: false, comment: "Sale or Return."}
+  - {name: quantity_units, type: "DECIMAL(12,3)", nullable: false, comment: "Units sold in selling units, not cases. Negative for returns so SUM gives net units. Kilograms for weighed items."}
+  - {name: gross_sales_amount_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Value at shelf price before discounts, excluding tax, USD. Negative for returns."}
+  - {name: discount_amount_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Promotional and loyalty discounts, USD, as a positive number that reduces sales."}
+  - {name: net_sales_amount_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Gross sales minus discounts, excluding tax, USD. Negative for returns. The company definition of sales and revenue."}
+  - {name: cost_of_goods_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Standard cost of the units on the day of sale, USD. Negative for returns. Zero when the product is UNKNOWN."}
+  - {name: gross_margin_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Net sales minus cost of goods, USD."}
+  - {name: net_sales_amount_local, type: "DECIMAL(18,2)", nullable: false, comment: "Net sales in the store local currency. Only for statutory local reporting."}
+  - {name: currency_code, type: STRING, nullable: false, comment: "ISO code of the local currency: USD or CAD."}
+  - {name: is_promo_sale, type: BOOLEAN, nullable: false, comment: "TRUE when a promotion was applied to the line."}
+  - {name: is_loyalty_sale, type: BOOLEAN, nullable: false, comment: "TRUE when a loyalty card was scanned on the transaction."}
+  - {name: _source_ingested_at, type: TIMESTAMP, comment: "Pipeline audit column: when the source file landed in bronze. Not for analysis."}

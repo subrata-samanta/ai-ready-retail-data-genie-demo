@@ -1,0 +1,14 @@
+table: dim_customer
+comment: >-
+  One row per loyalty customer, identified only by a pseudonymous id, plus the ANONYMOUS
+  member for baskets without a loyalty card. Contains no names, emails or dates of birth.
+  Use to group sales by loyalty tier, age band or home store.
+primary_key: [customer_id]
+tags: {domain: retail_performance, grain: customer, contains_pii: "false"}
+columns:
+  - {name: customer_id, type: STRING, nullable: false, comment: "Pseudonymous loyalty customer id (SHA-256 of the card number), or ANONYMOUS."}
+  - {name: loyalty_tier, type: STRING, nullable: false, comment: "Gold, Silver or Bronze; Anonymous for non-members; Unknown for new members not yet in the CRM extract."}
+  - {name: age_band, type: STRING, comment: "Age band derived from date of birth, for example 35-44. The date of birth itself is never stored here."}
+  - {name: home_store_id, type: STRING, comment: "Store the member chose as home store."}
+  - {name: enrollment_date, type: DATE, comment: "Date the member joined the loyalty programme."}
+  - {name: is_placeholder, type: BOOLEAN, nullable: false, comment: "TRUE for a late-arriving member seen in sales before the CRM extract caught up. Details are filled in when the CRM row arrives."}

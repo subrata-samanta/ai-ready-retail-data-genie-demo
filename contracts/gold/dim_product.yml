@@ -1,0 +1,17 @@
+table: dim_product
+comment: >-
+  One row per product (SKU) with the current merchandise hierarchy, plus an UNKNOWN member.
+  Use to filter or group by department, category, subcategory, brand or private label.
+primary_key: [product_id]
+cluster_by: [department, category]
+tags: {domain: retail_performance, grain: product}
+columns:
+  - {name: product_id, type: STRING, nullable: false, comment: "FreshCart item number without leading zeros. Join key to the facts."}
+  - {name: product_name, type: STRING, nullable: false, comment: "Shelf description, for example Crunchy Sea Salt Chips 200g."}
+  - {name: brand, type: STRING, comment: "Brand name. FreshCart own-brand products use FreshCart or FreshCart Select."}
+  - {name: department, type: STRING, nullable: false, comment: "Top level of the merchandise hierarchy: Produce, Bakery, Meat and Seafood, Deli, Dairy and Eggs, Grocery, Household."}
+  - {name: category, type: STRING, nullable: false, comment: "Second level, for example Snacks, Beverages, Cleaning."}
+  - {name: subcategory, type: STRING, nullable: false, comment: "Third level, for example Chips and Crisps, Cookies and Biscuits."}
+  - {name: unit_of_measure, type: STRING, nullable: false, comment: "Each or Kilogram. Kilogram items are weighed at the till; their quantities are weights."}
+  - {name: is_private_label, type: BOOLEAN, nullable: false, comment: "TRUE for FreshCart own-brand products (own brand, store brand)."}
+  - {name: product_status, type: STRING, nullable: false, comment: "Active or Discontinued."}

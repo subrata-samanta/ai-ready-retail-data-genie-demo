@@ -1,0 +1,23 @@
+table: dim_store
+comment: >-
+  One row per FreshCart store or Dark Store with current attributes, plus an UNKNOWN member.
+  Use to filter or group sales and stock by store, format, city, state, region or country,
+  and for store lists such as openings. Attribute history is in silver.store_history.
+primary_key: [store_id]
+cluster_by: [region]
+tags: {domain: retail_performance, grain: store}
+columns:
+  - {name: store_id, type: STRING, nullable: false, comment: "FreshCart store number without leading zeros, for example 1042. Join key to the facts."}
+  - {name: store_name, type: STRING, nullable: false, comment: "Trading name, for example FreshCart Boston Seaport. Use when a question names a store."}
+  - {name: store_format, type: STRING, nullable: false, comment: "One of: Supercenter, Neighborhood Market, Express, Dark Store. Dark Stores fulfil online orders only."}
+  - {name: city, type: STRING, comment: "City where the store is located."}
+  - {name: state_province, type: STRING, comment: "US state or Canadian province, full name, for example Massachusetts."}
+  - {name: country, type: STRING, comment: "United States or Canada."}
+  - {name: region, type: STRING, nullable: false, comment: "FreshCart operating region (management hierarchy, not census region). One of: Northeast, Southeast, Midwest, West, Canada."}
+  - {name: open_date, type: DATE, comment: "Date the store first traded."}
+  - {name: open_fiscal_year, type: INT, comment: "Fiscal year in which the store first traded. Use for questions about store openings by year."}
+  - {name: close_date, type: DATE, comment: "Date the store stopped trading, if closed."}
+  - {name: store_status, type: STRING, nullable: false, comment: "Open or Closed on the as-of date of the pipeline run."}
+  - {name: selling_area_sqft, type: INT, comment: "Selling floor area in square feet, excluding back room. Zero for Dark Stores. Use for sales per square foot."}
+  - {name: comparable_from_fiscal_year, type: INT, comment: "First fiscal year in which the store counts as comparable (like-for-like): the first year after one full fiscal year of trading. NULL for Dark Stores, which are never comparable."}
+  - {name: is_comparable_store_current_fy, type: BOOLEAN, nullable: false, comment: "TRUE if the store is open and comparable in the current fiscal year."}

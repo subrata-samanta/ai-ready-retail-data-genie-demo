@@ -1,0 +1,23 @@
+table: dim_date
+comment: >-
+  FreshCart fiscal calendar, one row per calendar day from FY2010 to FY2027. Use to convert
+  dates to fiscal weeks, periods, quarters and years and to filter relative periods such as
+  last week or year to date. Rolling flags are recomputed on every run relative to the
+  as-of date of the pipeline.
+primary_key: [calendar_date]
+tags: {domain: retail_performance, grain: day}
+columns:
+  - {name: calendar_date, type: DATE, nullable: false, comment: "Calendar day. Join key for sales_date and snapshot_date on the facts."}
+  - {name: day_of_week_name, type: STRING, comment: "Monday to Sunday. FreshCart weeks run Sunday to Saturday."}
+  - {name: fiscal_year, type: INT, comment: "FreshCart fiscal year, named for the calendar year it starts in. FY2026 runs from Sunday 1 Feb 2026 to Saturday 30 Jan 2027."}
+  - {name: fiscal_quarter, type: INT, comment: "Fiscal quarter 1 to 4. Q1 starts in February."}
+  - {name: fiscal_period, type: INT, comment: "Fiscal month 1 to 12 on a 4-5-4 pattern. Period 1 starts in February. Use for any question about months."}
+  - {name: fiscal_period_name, type: STRING, comment: "Label such as P01 Feb. Use for display."}
+  - {name: fiscal_week, type: INT, comment: "Fiscal week of year, 1 to 52, or 53 in 53-week years such as FY2023."}
+  - {name: fiscal_week_start_date, type: DATE, comment: "Sunday that starts the fiscal week."}
+  - {name: fiscal_day_of_year, type: INT, comment: "Day number within the fiscal year (1 to 364 or 371). The same number means the same weekday last year; use for like-for-like comparisons."}
+  - {name: is_last_completed_fiscal_week, type: BOOLEAN, comment: "TRUE for the 7 days of the most recent fully completed fiscal week. Use for last week."}
+  - {name: is_last_4_completed_fiscal_weeks, type: BOOLEAN, comment: "TRUE for the 28 days of the four most recent completed fiscal weeks. Use for last 4 weeks."}
+  - {name: is_current_fiscal_quarter, type: BOOLEAN, comment: "TRUE for all days of the fiscal quarter that contains yesterday."}
+  - {name: is_fiscal_ytd, type: BOOLEAN, comment: "TRUE from the first day of the current fiscal year up to and including yesterday."}
+  - {name: is_prior_fiscal_ytd, type: BOOLEAN, comment: "TRUE for the same fiscal days in the previous fiscal year. Compare with is_fiscal_ytd for year to date versus last year."}

@@ -1,0 +1,21 @@
+table: fct_inventory_daily
+comment: >-
+  Daily stock position. One row per store, ranged product and day, from nightly snapshots
+  covering the last 13 fiscal weeks. Use for stock on hand, stock value and out-of-stock
+  questions. Stock levels must not be summed across days.
+primary_key: [snapshot_date, store_id, product_id]
+cluster_by: [snapshot_date, store_id]
+tags: {domain: retail_performance, grain: store_product_day, genie_ready: "true"}
+column_tags: {region: {purpose: security_only}}
+foreign_keys:
+  - {column: snapshot_date, references: dim_date,    ref_column: calendar_date}
+  - {column: store_id,      references: dim_store,   ref_column: store_id}
+  - {column: product_id,    references: dim_product, ref_column: product_id}
+columns:
+  - {name: snapshot_date, type: DATE, nullable: false, comment: "Day of the close-of-business stock count. Join to dim_date.calendar_date."}
+  - {name: store_id, type: STRING, nullable: false, comment: "Store holding the stock."}
+  - {name: product_id, type: STRING, nullable: false, comment: "Product in stock."}
+  - {name: region, type: STRING, nullable: false, comment: "Copy of dim_store.region used only for row-level security."}
+  - {name: on_hand_units, type: "DECIMAL(12,3)", nullable: false, comment: "Sellable units in stock at close of business. Semi-additive: can be summed across stores and products but never across days."}
+  - {name: on_hand_value_usd, type: "DECIMAL(18,2)", nullable: false, comment: "Value of on-hand stock at standard cost, USD. Semi-additive like on_hand_units."}
+  - {name: is_out_of_stock, type: BOOLEAN, nullable: false, comment: "TRUE when a ranged, active product had zero sellable stock at close of business."}
