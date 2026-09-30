@@ -1,0 +1,337 @@
+-- GENERATED from semantic/*.yaml by `python -m freshcart.export_databricks`. Do not edit by hand.
+-- Creates the Unity Catalog metric views. Requires Databricks Runtime 16.4+ (YAML spec 1.1 for
+-- synonyms, display names and formats). The local engine reads the very same YAML.
+
+CREATE OR REPLACE VIEW freshcart.semantic.sales_metrics
+WITH METRICS
+LANGUAGE YAML
+AS $$
+version: 1.1
+comment: >-
+  Governed FreshCart sales KPIs at receipt-line grain. Use for any question about sales,
+  revenue, units, baskets, margin, returns, promotions or loyalty by fiscal period, store,
+  region, product hierarchy, channel or loyalty tier. Amounts are USD and exclude sales tax.
+source: freshcart.gold.fct_sales_line
+
+joins:
+  - name: dt
+    source: freshcart.gold.dim_date
+    on: source.sales_date = dt.calendar_date
+  - name: store
+    source: freshcart.gold.dim_store
+    on: source.store_id = store.store_id
+  - name: product
+    source: freshcart.gold.dim_product
+    on: source.product_id = product.product_id
+  - name: customer
+    source: freshcart.gold.dim_customer
+    on: source.customer_id = customer.customer_id
+  - name: promo
+    source: freshcart.gold.dim_promotion
+    on: source.promotion_id = promo.promotion_id
+
+fields:
+  # ---- Time ---------------------------------------------------------------------------
+  - name: sales_date
+    expr: sales_date
+    display_name: Sales Date
+    synonyms: [date, day, business date]
+  - name: day_of_week_name
+    expr: dt.day_of_week_name
+    display_name: Day of Week
+    synonyms: [weekday, day of week]
+  - name: fiscal_year
+    expr: dt.fiscal_year
+    display_name: Fiscal Year
+    synonyms: [FY, year]
+  - name: fiscal_quarter
+    expr: dt.fiscal_quarter
+    display_name: Fiscal Quarter
+    synonyms: [quarter, FQ]
+  - name: fiscal_period
+    expr: dt.fiscal_period
+    display_name: Fiscal Period
+    comment: 4-5-4 fiscal month 1 to 12. Period 1 starts in February.
+    synonyms: [period, fiscal month, month]
+  - name: fiscal_period_name
+    expr: dt.fiscal_period_name
+    display_name: Fiscal Period Name
+  - name: fiscal_week
+    expr: dt.fiscal_week
+    display_name: Fiscal Week
+    synonyms: [week, wk]
+  - name: fiscal_week_start_date
+    expr: dt.fiscal_week_start_date
+    display_name: Week Starting
+  - name: is_last_completed_fiscal_week
+    expr: dt.is_last_completed_fiscal_week
+    display_name: Last Week
+    synonyms: [last week, previous week, latest week]
+  - name: is_last_4_completed_fiscal_weeks
+    expr: dt.is_last_4_completed_fiscal_weeks
+    display_name: Last 4 Weeks
+    synonyms: [last four weeks, last 4 weeks, recent four weeks]
+  - name: is_current_fiscal_quarter
+    expr: dt.is_current_fiscal_quarter
+    display_name: This Quarter
+    synonyms: [this quarter, current quarter, QTD]
+  - name: is_fiscal_ytd
+    expr: dt.is_fiscal_ytd
+    display_name: Year to Date
+    synonyms: [YTD, year to date, this year so far]
+  - name: is_prior_fiscal_ytd
+    expr: dt.is_prior_fiscal_ytd
+    display_name: Last Year to Date
+    synonyms: [LYTD, last year to date, same period last year]
+  # ---- Store --------------------------------------------------------------------------
+  - name: store_name
+    expr: store.store_name
+    display_name: Store
+    synonyms: [store, location, branch, shop]
+  - name: store_format
+    expr: store.store_format
+    display_name: Store Format
+    synonyms: [format, store type]
+  - name: region
+    expr: store.region
+    display_name: Region
+    synonyms: [operating region, area, market]
+  - name: country
+    expr: store.country
+    display_name: Country
+  - name: is_comparable_store
+    expr: store.is_comparable_store_current_fy
+    display_name: Comparable Store
+    synonyms: [comp store, like-for-like store, LFL store, same store]
+  # ---- Product ------------------------------------------------------------------------
+  - name: department
+    expr: product.department
+    display_name: Department
+  - name: category
+    expr: product.category
+    display_name: Category
+    synonyms: [product category]
+  - name: subcategory
+    expr: product.subcategory
+    display_name: Subcategory
+    synonyms: [sub-category, segment]
+  - name: brand
+    expr: product.brand
+    display_name: Brand
+  - name: product_name
+    expr: product.product_name
+    display_name: Product
+    synonyms: [item, SKU, article]
+  - name: is_private_label
+    expr: product.is_private_label
+    display_name: Private Label
+    synonyms: [own brand, store brand, private label]
+  # ---- Channel, customer, promotion ---------------------------------------------------
+  - name: sales_channel
+    expr: sales_channel
+    display_name: Channel
+    synonyms: [channel, online or in-store]
+  - name: loyalty_tier
+    expr: customer.loyalty_tier
+    display_name: Loyalty Tier
+    synonyms: [membership tier, rewards tier]
+  - name: is_loyalty_sale
+    expr: is_loyalty_sale
+    display_name: Loyalty Member Sale
+    synonyms: [member, loyalty customer, card holder]
+  - name: promotion_name
+    expr: promo.promotion_name
+    display_name: Promotion
+    synonyms: [promo, deal, offer]
+  - name: promotion_mechanic
+    expr: promo.promotion_mechanic
+    display_name: Promotion Mechanic
+    synonyms: [promo type, deal type]
+  - name: is_promo_sale
+    expr: is_promo_sale
+    display_name: On Promotion
+    synonyms: [promoted, on deal]
+
+measures:
+  - name: net_sales
+    expr: SUM(net_sales_amount_usd)
+    display_name: Net Sales
+    comment: Sales after discounts and returns, excluding tax, USD. The default meaning of sales and revenue.
+    synonyms: [sales, revenue, turnover, net revenue, takings]
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places: {type: exact, places: 0}
+      abbreviation: compact
+  - name: gross_sales
+    expr: SUM(gross_sales_amount_usd)
+    display_name: Gross Sales
+    comment: Sales at shelf price before discounts, after returns, excluding tax. Use only when the user asks for gross or pre-discount sales.
+    synonyms: [gross sales, sales before discount]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+  - name: discount_amount
+    expr: SUM(discount_amount_usd)
+    display_name: Discounts
+    synonyms: [discounts, promotional discount, promo spend]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+  - name: units_sold
+    expr: SUM(quantity_units)
+    display_name: Units Sold
+    comment: Net units; returns subtract. Weighed items count in kilograms.
+    synonyms: [units, volume, quantity, items sold]
+  - name: transactions
+    expr: COUNT(DISTINCT transaction_id) FILTER (WHERE line_type = 'Sale')
+    display_name: Transactions
+    comment: Distinct receipts or online orders with at least one sale line.
+    synonyms: [baskets, receipts, orders, transaction count]
+  - name: average_basket_value
+    expr: MEASURE(net_sales) / NULLIF(MEASURE(transactions), 0)
+    display_name: Average Basket Value
+    synonyms: [basket size, basket value, AOV, average order value, ATV]
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 2}}
+  - name: units_per_transaction
+    expr: MEASURE(units_sold) / NULLIF(MEASURE(transactions), 0)
+    display_name: Units per Transaction
+    synonyms: [UPT, items per basket]
+  - name: gross_margin
+    expr: SUM(gross_margin_usd)
+    display_name: Gross Margin
+    synonyms: [margin, GM, gross profit]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+  - name: gross_margin_pct
+    expr: MEASURE(gross_margin) / NULLIF(MEASURE(net_sales), 0)
+    display_name: Gross Margin %
+    comment: Ratio of summed margin to summed net sales. Never average line-level percentages.
+    synonyms: [margin %, GM%, margin rate, margin percentage]
+    format: {type: percentage, decimal_places: {type: exact, places: 1}}
+  - name: sales_before_returns
+    expr: SUM(net_sales_amount_usd) FILTER (WHERE line_type = 'Sale')
+    display_name: Sales Before Returns
+  - name: return_amount
+    expr: -COALESCE(SUM(net_sales_amount_usd) FILTER (WHERE line_type = 'Return'), 0)
+    display_name: Returns
+    comment: Value of returned items as a positive number, USD.
+    synonyms: [returns, refunds, returned sales]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+  - name: return_rate
+    expr: MEASURE(return_amount) / NULLIF(MEASURE(sales_before_returns), 0)
+    display_name: Return Rate
+    synonyms: [returns rate, refund rate]
+    format: {type: percentage, decimal_places: {type: exact, places: 2}}
+  - name: promo_net_sales
+    expr: COALESCE(SUM(net_sales_amount_usd) FILTER (WHERE is_promo_sale = true), 0)
+    display_name: Promoted Sales
+    synonyms: [promo sales, sales on promotion]
+  - name: promo_sales_share
+    expr: MEASURE(promo_net_sales) / NULLIF(MEASURE(net_sales), 0)
+    display_name: Promo Sales Share
+    synonyms: [promo share, promotional mix, promo penetration]
+    format: {type: percentage, decimal_places: {type: exact, places: 1}}
+  - name: trading_stores
+    expr: COUNT(DISTINCT store_id)
+    display_name: Trading Stores
+    synonyms: [store count, number of stores]
+$$;
+
+CREATE OR REPLACE VIEW freshcart.semantic.inventory_metrics
+WITH METRICS
+LANGUAGE YAML
+AS $$
+version: 1.1
+comment: >-
+  FreshCart store stock position from nightly snapshots (one row per store, product and day).
+  Use for stock on hand, stock value and out-of-stock questions. Stock levels add up across
+  stores and products but not across days.
+source: freshcart.gold.fct_inventory_daily
+
+joins:
+  - name: dt
+    source: freshcart.gold.dim_date
+    on: source.snapshot_date = dt.calendar_date
+  - name: store
+    source: freshcart.gold.dim_store
+    on: source.store_id = store.store_id
+  - name: product
+    source: freshcart.gold.dim_product
+    on: source.product_id = product.product_id
+
+fields:
+  - name: snapshot_date
+    expr: snapshot_date
+    display_name: Stock Date
+    synonyms: [date, stock date, count date]
+  - name: fiscal_year
+    expr: dt.fiscal_year
+    display_name: Fiscal Year
+  - name: fiscal_week
+    expr: dt.fiscal_week
+    display_name: Fiscal Week
+    synonyms: [week]
+  - name: is_last_completed_fiscal_week
+    expr: dt.is_last_completed_fiscal_week
+    display_name: Last Week
+    synonyms: [last week]
+  - name: is_last_4_completed_fiscal_weeks
+    expr: dt.is_last_4_completed_fiscal_weeks
+    display_name: Last 4 Weeks
+    synonyms: [last 4 weeks, last four weeks]
+  - name: store_name
+    expr: store.store_name
+    display_name: Store
+    synonyms: [store, location]
+  - name: store_format
+    expr: store.store_format
+    display_name: Store Format
+  - name: region
+    expr: store.region
+    display_name: Region
+  - name: department
+    expr: product.department
+    display_name: Department
+  - name: category
+    expr: product.category
+    display_name: Category
+  - name: subcategory
+    expr: product.subcategory
+    display_name: Subcategory
+  - name: brand
+    expr: product.brand
+    display_name: Brand
+  - name: product_name
+    expr: product.product_name
+    display_name: Product
+    synonyms: [item, SKU]
+
+measures:
+  - name: on_hand_units
+    expr: SUM(on_hand_units)
+    display_name: Stock on Hand (Units)
+    comment: Units in stock at close of business on the last day of the selected period.
+    synonyms: [stock, inventory, stock on hand, SOH, stock level]
+    window:
+      - order: snapshot_date
+        range: current
+        semiadditive: last
+  - name: on_hand_value
+    expr: SUM(on_hand_value_usd)
+    display_name: Stock Value
+    comment: Stock at cost on the last day of the selected period, USD.
+    synonyms: [inventory value, stock value, stock at cost]
+    format: {type: currency, currency_code: USD, abbreviation: compact}
+    window:
+      - order: snapshot_date
+        range: current
+        semiadditive: last
+  - name: out_of_stock_rate
+    expr: AVG(CASE WHEN is_out_of_stock = true THEN 1.0 ELSE 0.0 END)
+    display_name: Out-of-Stock Rate
+    comment: Share of store-product-days with zero sellable stock for ranged, active products.
+    synonyms: [OOS rate, stockout rate, availability gap]
+    format: {type: percentage, decimal_places: {type: exact, places: 1}}
+  - name: out_of_stock_days
+    expr: COUNT(CASE WHEN is_out_of_stock = true THEN 1 END)
+    display_name: Out-of-Stock Days
+    synonyms: [stockout days, OOS days]
+$$;
+
+GRANT SELECT ON SCHEMA freshcart.semantic TO `fc_genie_users`;
