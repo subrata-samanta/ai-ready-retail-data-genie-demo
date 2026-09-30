@@ -1,0 +1,144 @@
+# Benchmark suite for the FreshCart Sales & Stock Assistant.
+# Each expected_sql is the ground truth, signed off by the KPI owner. It is written in
+# Databricks SQL and runs unchanged on Databricks; `python -m freshcart.benchmarks` runs it
+# locally through the metric-view engine and records the expected answer in the docs.
+# Questions without expected_sql are graded by review or by Agent-mode benchmarks.
+benchmarks:
+  - id: 1
+    question: What were total sales last week?
+    tests: Default KPI and relative time
+    correct_when: net_sales for the last completed fiscal week
+    expected_sql: |
+      SELECT MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE is_last_completed_fiscal_week
+
+  - id: 2
+    question: What was turnover in the north east last week?
+    tests: Synonym (turnover) and value matching (north east)
+    correct_when: net_sales with region = 'Northeast'
+    expected_sql: |
+      SELECT MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE region = 'Northeast' AND is_last_completed_fiscal_week
+
+  - id: 3
+    question: Sales for the boston seaprt store this year
+    tests: Misspelled entity
+    correct_when: store_name = 'FreshCart Boston Seaport' and fiscal year to date
+    expected_sql: |
+      SELECT MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE store_name = 'FreshCart Boston Seaport' AND is_fiscal_ytd
+
+  - id: 4
+    question: Rank the Snacks subcategories by margin % year to date
+    tests: Hierarchy, ratio measure, ranking
+    correct_when: gross_margin_pct by subcategory within category Snacks
+    expected_sql: |
+      SELECT subcategory, MEASURE(gross_margin_pct) AS gross_margin_pct
+      FROM freshcart.semantic.sales_metrics
+      WHERE category = 'Snacks' AND is_fiscal_ytd
+      GROUP BY ALL
+      ORDER BY gross_margin_pct DESC
+
+  - id: 5
+    question: What is gross margin % by region YTD?
+    tests: Ratio aggregation trap
+    correct_when: ratio of summed margin to summed sales, never an average of line percentages
+    expected_sql: |
+      SELECT region, MEASURE(gross_margin_pct) AS gross_margin_pct
+      FROM freshcart.semantic.sales_metrics
+      WHERE is_fiscal_ytd
+      GROUP BY ALL
+      ORDER BY region
+
+  - id: 6
+    question: How much Produce stock did we have at the end of last week?
+    tests: Semi-additive measure
+    correct_when: stock on the last day of the week, not the sum of 7 daily snapshots
+    expected_sql: |
+      SELECT MEASURE(on_hand_units) AS produce_units_on_hand
+      FROM freshcart.semantic.inventory_metrics
+      WHERE is_last_completed_fiscal_week AND department = 'Produce'
+
+  - id: 7
+    question: How are we trading YTD vs last year?
+    tests: Time comparison with precomputed flags
+    correct_when: is_fiscal_ytd versus is_prior_fiscal_ytd (same fiscal days)
+    expected_sql: |
+      SELECT fiscal_year, MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE is_fiscal_ytd OR is_prior_fiscal_ytd
+      GROUP BY ALL
+      ORDER BY fiscal_year
+
+  - id: 8
+    question: What is our like-for-like growth by region this year?
+    tests: Trusted asset
+    correct_when: calls fn_like_for_like_sales for the current fiscal year
+    expected_sql: |
+      SELECT * FROM freshcart.semantic.fn_like_for_like_sales(2026)
+
+  - id: 9
+    question: What is the return rate in Household over the last 4 weeks?
+    tests: Signed amounts
+    correct_when: return_rate with department = 'Household'
+    expected_sql: |
+      SELECT MEASURE(return_rate) AS return_rate, MEASURE(return_amount) AS return_amount
+      FROM freshcart.semantic.sales_metrics
+      WHERE department = 'Household' AND is_last_4_completed_fiscal_weeks
+
+  - id: 10
+    question: Which promotion mechanic drove most sales this quarter?
+    tests: Promotion dimension
+    correct_when: net_sales by promotion_mechanic, promoted lines only
+    expected_sql: |
+      SELECT promotion_mechanic, MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE is_current_fiscal_quarter AND is_promo_sale
+      GROUP BY ALL
+      ORDER BY net_sales DESC
+
+  - id: 11
+    question: Do Gold members spend more per basket than Silver?
+    tests: Loyalty attribute and ratio measure
+    correct_when: average_basket_value by loyalty_tier for Gold and Silver
+    expected_sql: |
+      SELECT loyalty_tier, MEASURE(average_basket_value) AS average_basket_value
+      FROM freshcart.semantic.sales_metrics
+      WHERE loyalty_tier IN ('Gold', 'Silver') AND is_fiscal_ytd
+      GROUP BY ALL
+      ORDER BY average_basket_value DESC
+
+  - id: 12
+    question: What share of sales is online, by region, this year?
+    tests: Share within a group
+    correct_when: online net_sales divided by total net_sales per region
+    expected_sql: |
+      SELECT region, sales_channel, MEASURE(net_sales) AS net_sales
+      FROM freshcart.semantic.sales_metrics
+      WHERE is_fiscal_ytd
+      GROUP BY ALL
+      ORDER BY region, sales_channel
+
+  - id: 13
+    question: How is the Midwest doing?
+    tests: Clarification behaviour
+    correct_when: asks which period before answering (grade by review or Agent-mode benchmark)
+    expected_sql: null
+
+  - id: 14
+    question: What was labour cost per store last month?
+    tests: Out of scope
+    correct_when: says labour data is not available; does not invent a query
+    expected_sql: null
+
+  - id: 15
+    question: Which stores opened in FY2025?
+    tests: Dimension lookup
+    correct_when: dim_store rows with open_fiscal_year = 2025
+    expected_sql: |
+      SELECT store_name, open_date, store_format
+      FROM freshcart.gold.dim_store
+      WHERE open_fiscal_year = 2025
