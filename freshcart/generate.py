@@ -636,8 +636,9 @@ def generate_inventory():
 
 
 def main():
-    if C.RAW_DIR.exists():
-        shutil.rmtree(C.RAW_DIR)
+    for sub in ["pos", "ecommerce", "erp", "stores", "crm", "promotions", "finance", "inventory"]:
+        if (C.RAW_DIR / sub).exists():                  # keep data/raw/README.md
+            shutil.rmtree(C.RAW_DIR / sub)
     generate_finance()
     generate_stores()
     generate_products()
