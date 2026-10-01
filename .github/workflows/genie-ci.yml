@@ -1,0 +1,54 @@
+# Genie space: checks on every pull request (no Databricks access needed)
+#
+#  1. the space file is valid, canonical and environment-neutral, and every SQL in it runs
+#  2. the version-control / promotion / rollback logic passes its tests (simulated dev, qa, prod)
+#  3. reviewers get a readable list of what changed in the space (job summary)
+#
+# Make the "genie-ci / checks" job a required status check on main (branch protection), so no
+# change to the space can merge without passing it and without a reviewer's approval.
+name: genie-ci
+
+on:
+  pull_request:
+    paths:
+      - "genie/**"
+      - "genie_cicd/**"
+      - "deploy/genie/**"
+      - "semantic/**"
+      - "tests/test_genie_cicd.py"
+      - ".github/workflows/genie-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "genie/**"
+      - "genie_cicd/**"
+      - "deploy/genie/**"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # the base branch is needed for the change list
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r deploy/genie/requirements.txt
+
+      - name: Validate the space file (static checks + every SQL on the local warehouse)
+        run: python -m genie_cicd validate --sql
+
+      - name: Version-control, promotion and rollback tests
+        run: python tests/run_tests.py
+
+      - name: What changed in the Genie space
+        if: github.event_name == 'pull_request'
+        run: |
+          git show "origin/${{ github.base_ref }}:genie/space/freshcart_assistant.geniespace.json" > /tmp/base.json 2>/dev/null || echo '{}' > /tmp/base.json
+          python -m genie_cicd diff --base /tmp/base.json

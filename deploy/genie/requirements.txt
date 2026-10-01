@@ -1,0 +1,3 @@
+# Packages for genie_cicd in CI/CD (the local demo needs only PyYAML)
+PyYAML>=6.0
+databricks-sdk==0.145.0

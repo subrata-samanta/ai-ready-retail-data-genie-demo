@@ -130,6 +130,11 @@ It teaches the theory first (grain, keys, medallion layers, star schemas, SQL wi
 bronze, silver and gold table from the raw files, one step at a time, explaining each transformation and why it is needed.
 Run it with `pip install -r notebooks/requirements.txt` and `jupyter notebook notebooks/`.
 
+Taking the Genie space to production? [`notebooks/Genie_Version_Control_and_CICD.ipynb`](notebooks/Genie_Version_Control_and_CICD.ipynb)
+is a complete guide, with a working implementation in [`genie_cicd/`](genie_cicd/), to version history and rollback for
+every change made in the dev space, and to promoting it dev → QA → prod with benchmark gates, approvals and drift
+protection ([`.github/workflows/genie-*.yml`](.github/workflows/)).
+
 ## Repository map
 
 ```text
@@ -144,7 +149,10 @@ genie/               Genie Agent config, instructions, example queries, benchmar
 databricks/          the Databricks version: setup, Lakeflow pipeline, gold MERGEs, governance, metric views
 tests/               13 tests incl. raw-to-gold reconciliation
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
-notebooks/           beginner walkthrough notebook: theory + every table rebuilt step by step
+notebooks/           walkthrough notebooks: every table step by step; Genie version control and CI/CD
+genie/space/         the Genie space as code (environment-neutral serialized space), deployed dev -> qa -> prod
+genie_cicd/          version control, promotion, gates and rollback for the Genie space (python -m genie_cicd)
+deploy/genie/        per-environment settings for the Genie space
 ```
 
 ## Design decisions in one list

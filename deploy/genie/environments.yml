@@ -1,0 +1,55 @@
+# Genie space promotion: dev -> qa -> prod
+# ---------------------------------------------------------------------------------------------
+# One environment-neutral space file in git (catalog written as {{catalog}}) is deployed to every
+# environment below. Only what differs between environments lives here.
+#
+# Values like ${GENIE_DEV_WAREHOUSE_ID} are read from environment variables at run time. In GitHub
+# Actions they come from the variables of the matching GitHub environment (dev / qa / prod).
+# On a laptop, set them in your shell, and authenticate with the `profile` from ~/.databrickscfg
+# (the profile is used only when DATABRICKS_HOST is not set, so CI ignores it).
+
+space:
+  file: ../../genie/space/freshcart_assistant.geniespace.json
+  title: FreshCart Sales & Stock Assistant
+  description: |
+    Ask about sales, margin, baskets, promotions, loyalty and stock across FreshCart stores
+    and online. Figures are USD, exclude tax and use the FreshCart fiscal calendar.
+    You only see regions you have access to; if a question returns no rows, you may not
+    have access to that region. Not covered: labour, supplier deliveries, individual customers.
+
+environments:
+  dev:
+    profile: freshcart-dev
+    catalog: freshcart_dev                    # each environment reads its own copy of the data
+    warehouse_id: ${GENIE_DEV_WAREHOUSE_ID}
+    title_suffix: " [DEV]"
+    parent_path: /Workspace/Shared/genie/dev
+    space_id: ${GENIE_DEV_SPACE_ID}           # optional; found by title when empty
+    history_root: /Volumes/freshcart_dev/ops/genie_history
+    protected: false                          # people edit dev in the UI; snapshots capture every change
+
+  qa:
+    profile: freshcart-qa
+    catalog: freshcart_qa
+    warehouse_id: ${GENIE_QA_WAREHOUSE_ID}
+    title_suffix: " [QA]"
+    parent_path: /Workspace/Shared/genie/qa
+    space_id: ${GENIE_QA_SPACE_ID}
+    history_root: /Volumes/freshcart_qa/ops/genie_history
+    protected: true                           # only the pipeline writes here; UI edits are drift
+    gate:                                     # promotion to prod requires all of these on qa
+      min_accuracy: 0.95                      # share of automatically graded benchmarks answered correctly
+      max_bad: 0                              # no benchmark may be answered wrongly
+      min_graded: 4                           # at least this many benchmarks must be graded
+    smoke_question: What were net sales and margin by region last week?
+
+  prod:
+    profile: freshcart-prod
+    catalog: freshcart
+    warehouse_id: ${GENIE_PROD_WAREHOUSE_ID}
+    title_suffix: ""
+    parent_path: /Workspace/Shared/genie/prod
+    space_id: ${GENIE_PROD_SPACE_ID}
+    history_root: /Volumes/freshcart/ops/genie_history
+    protected: true
+    smoke_question: What were net sales and margin by region last week?

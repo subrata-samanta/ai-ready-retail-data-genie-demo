@@ -1,0 +1,70 @@
+# Genie space: rollback (run manually from the Actions tab)
+#
+#   to = previous                 the release before the one that is live now (run again to go further back)
+#   to = <history record id>      any backup / snapshot / release in the environment's history
+#   to = git:<tag or commit>      the space file as it was in git, e.g. git:genie-prod-20261001.0915-1a2b3c4
+#
+# The `prod` GitHub environment's required reviewers approve the rollback like any deploy.
+# A backup of the live space is taken first, so a rollback can itself be rolled back.
+name: genie-rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        type: choice
+        options: [prod, qa, dev]
+        required: true
+      to:
+        description: "previous | <history record id> | git:<tag or commit>"
+        default: previous
+        required: true
+      reason:
+        description: Why (kept in the run log)
+        required: true
+
+concurrency:
+  group: genie-release                         # never overlaps with a release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      GENIE_DEV_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
+      GENIE_QA_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
+      GENIE_PROD_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
+      GENIE_DEV_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
+      GENIE_QA_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
+      GENIE_PROD_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
+      TARGET_ENV: ${{ inputs.environment }}      # inputs reach the shell as variables, never as code
+      ROLLBACK_TO: ${{ inputs.to }}
+      REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # tags and history for git:<ref> targets
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r deploy/genie/requirements.txt
+      - name: Reason
+        run: |
+          echo "Rollback of $TARGET_ENV to '$ROLLBACK_TO' requested by $GITHUB_ACTOR"
+          echo "Reason: $REASON"
+      - name: History before
+        run: python -m genie_cicd history --env "$TARGET_ENV"
+      - name: Roll back
+        run: python -m genie_cicd rollback --env "$TARGET_ENV" --to "$ROLLBACK_TO"
+      - name: Smoke test
+        if: inputs.environment != 'dev'
+        run: python -m genie_cicd smoke --env "$TARGET_ENV"

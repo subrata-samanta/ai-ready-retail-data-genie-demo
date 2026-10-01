@@ -3,6 +3,10 @@
 # This file documents every setting to enter in the Genie Agent UI (Configure > ...).
 # It is written to be reviewed in pull requests like code. Enter it in the UI, or use it
 # as the source for a Declarative Automation Bundle / the Genie API when you automate.
+#
+# Version control: `python -m genie_cicd bootstrap` compiled this design into
+# genie/space/freshcart_assistant.geniespace.json, which is now what gets deployed (dev -> qa -> prod).
+# Change the space in the dev UI or in that file; see notebooks/Genie_Version_Control_and_CICD.ipynb.
 
 title: FreshCart Sales & Stock Assistant
 
