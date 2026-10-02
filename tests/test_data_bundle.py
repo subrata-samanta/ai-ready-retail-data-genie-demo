@@ -166,3 +166,27 @@ def test_grant_to_a_non_account_group_is_skipped_with_a_warning():
         raise AssertionError("any other error must stop the run")
     except RuntimeError:
         pass
+
+
+def test_sql_functions_keep_parameters_out_of_aggregates():
+    """Inside a SQL function a parameter is an outer reference; Databricks rejects an aggregate that mixes it
+    with table columns (AGGREGATE_FUNCTION_MIXED_OUTER_LOCAL_REFERENCES). Use parameters only in WHERE filters."""
+    try:
+        import sqlglot
+        from sqlglot import exp
+    except ImportError:
+        print("      (sqlglot not installed: check skipped)")
+        return
+    checked = 0
+    for path in job_sql_files():
+        for statement in R.split_statements(path.read_text()):
+            m = re.match(r"CREATE OR REPLACE FUNCTION\s+\S+?\((.*?)\)\s*RETURNS TABLE", statement, re.S)
+            if not m:
+                continue
+            params = set(re.findall(r"^\s*(\w+)\s+\w+", m.group(1), re.M))
+            body = R.render(statement.split("\nRETURN\n", 1)[1], PARAMS)
+            for agg in sqlglot.parse_one(body, read="databricks").find_all(exp.AggFunc):
+                used = {c.name for c in agg.find_all(exp.Column)} & params
+                assert not used, f"{path.name}: aggregate {agg.sql()[:80]} uses parameter(s) {used}"
+            checked += 1
+    assert checked == 1, "expected the like-for-like function"
