@@ -51,6 +51,29 @@
 # MAGIC   target `dev`. The same YAML deploys `qa` and `prod`; only the target's variables differ (the catalog, for example).
 # MAGIC * **Two bundles**, deployed in this order: the **data bundle** (`databricks/`) builds the tables, then the **Genie
 # MAGIC   bundle** (`genie_bundle/`) creates the Genie space that reads them.
+# MAGIC
+# MAGIC ## How the code is organised
+# MAGIC
+# MAGIC Each step first **defines** a small function for its job, then **calls** it for the environment chosen in step 1.
+# MAGIC Step 15 calls the very same functions for qa and prod, which is what "promotion" means: same code, next target.
+# MAGIC
+# MAGIC | Function | Step | Does |
+# MAGIC |---|---|---|
+# MAGIC | `catalog_for(env)` | 2 | the catalog of an environment, read from `databricks/databricks.yml` |
+# MAGIC | `bundle(name, env, ...)` | 3 | runs `databricks bundle ... -t env` for the data (`"data"`) or Genie (`"genie"`) bundle |
+# MAGIC | `prepare_catalog(env)` | 5 | creates the catalog, schemas, volume and governance functions |
+# MAGIC | `upload_raw(env)` | 6 | copies `data/raw/` into the environment's landing volume |
+# MAGIC | `deploy_data(env)` / `run_refresh(env)` | 7, 8 | deploys the data bundle / runs its refresh job |
+# MAGIC | `deploy_genie(env)` | 11 | deploys the Genie bundle and returns the space id |
+# MAGIC | `ask(question)` | 12 | asks Genie through the API and shows its SQL and result |
+# MAGIC | `run_gate(env, mode)` | 13 | runs the quality-gate job (`gate` or `smoke`) |
+# MAGIC
+# MAGIC The notebook never deploys anything itself: every resource is created by `databricks bundle deploy`, exactly as the
+# MAGIC GitHub workflows do. The Python around it only prepares inputs (catalog, files, groups) and shows results.
+# MAGIC
+# MAGIC This notebook exists in two formats with the same cells: `FreshCart_End_to_End_on_Databricks.ipynb` (open this one,
+# MAGIC on GitHub or in Databricks) and `FreshCart_End_to_End_on_Databricks_source.py` (Databricks source format, which
+# MAGIC gives clean diffs in pull requests; the `.ipynb` is generated from it by `python -m freshcart.databricks_notebook`).
 
 # COMMAND ----------
 
@@ -92,6 +115,7 @@ dbutils.widgets.text("as_of_date", "2026-09-27", "4 as-of date")
 dbutils.widgets.dropdown("promote", "no", ["no", "yes"], "5 promote to qa and prod")
 dbutils.widgets.dropdown("cleanup", "no", ["no", "yes"], "6 clean up at the end")
 
+# Read the widget values once; every later cell uses these Python variables.
 ENV = dbutils.widgets.get("environment")
 CATALOG_OVERRIDE = dbutils.widgets.get("catalog").strip()
 WAREHOUSE_NAME = dbutils.widgets.get("warehouse").strip()
@@ -127,7 +151,8 @@ VOLUMES = Path("/Volumes")                       # Unity Catalog volumes, mounte
 
 
 def find_repo() -> Path:
-    candidates = [Path.cwd().parent, Path.cwd()]
+    """The repository root: the Git folder that contains this notebook (in notebooks/)."""
+    candidates = [Path.cwd().parent, Path.cwd()]          # a notebook's working directory is its own folder
     try:
         nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
         candidates += [Path("/Workspace" + nb).parent.parent, Path(nb).parent.parent]
@@ -141,12 +166,15 @@ def find_repo() -> Path:
 
 
 REPO = find_repo()
+# The environments and their catalogs come from the data bundle itself, so this notebook can never disagree with it:
+#   targets: {dev: {variables: {catalog: freshcart_dev}}, qa: {...: freshcart_qa}, prod: {...: freshcart}}
 DATA_TARGETS = yaml.safe_load((REPO / "databricks" / "databricks.yml").read_text())["targets"]
 ENVIRONMENTS = list(DATA_TARGETS)                                       # dev, qa, prod
 DEFAULT_CATALOG = {t: cfg["variables"]["catalog"] for t, cfg in DATA_TARGETS.items()}
 
 
 def catalog_for(env: str) -> str:
+    """The catalog of an environment; the 'catalog' widget overrides it for the chosen environment only."""
     return CATALOG_OVERRIDE if (CATALOG_OVERRIDE and env == ENV) else DEFAULT_CATALOG[env]
 
 
@@ -164,6 +192,7 @@ except Exception as e:                           # noqa: BLE001
 
 
 def pick_warehouse():
+    """The warehouse named in the widget, else a serverless one (the starter warehouse first), else a new one."""
     warehouses = list(w.warehouses.list())
     if WAREHOUSE_NAME:
         named = [x for x in warehouses if x.name == WAREHOUSE_NAME]
@@ -212,8 +241,9 @@ BUNDLES = {"data": "databricks", "genie": "genie_bundle"}      # bundle name -> 
 
 
 def install_cli() -> Path:
+    """Download the CLI release for this machine's processor (once per compute session) and return its path."""
     exe = WORK / "cli" / "databricks"
-    if exe.exists():
+    if exe.exists():                             # already installed earlier in this session
         return exe
     arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine().lower()]
     url = (f"https://github.com/databricks/cli/releases/download/v{CLI_VERSION}/"
@@ -229,6 +259,7 @@ def install_cli() -> Path:
 
 
 def token() -> str:
+    """A short-lived token for you, taken from the notebook's own sign-in (nothing is created or stored)."""
     auth = w.config.authenticate().get("Authorization", "")
     if auth.startswith("Bearer "):
         return auth[len("Bearer "):]
@@ -236,6 +267,8 @@ def token() -> str:
 
 
 def cli_env(env: str) -> dict:
+    """Environment variables for a CLI call: who to sign in as, and the bundle variables for this environment."""
+    # Start clean: the notebook's own DATABRICKS_* variables describe the notebook, not the CLI's sign-in.
     e = {k: v for k, v in os.environ.items() if not k.startswith(("DATABRICKS_", "BUNDLE_VAR_"))}
     e.update({
         "DATABRICKS_HOST": HOST, "DATABRICKS_TOKEN": token(), "DATABRICKS_AUTH_TYPE": "pat",
@@ -284,7 +317,8 @@ def bundle_json(name: str, env: str, *args) -> dict:
 
 
 CLI = install_cli()
-run([CLI, "--version"], cwd=WORK, env=ENV)
+run([CLI, "--version"], cwd=WORK, env=ENV)          # proves the binary runs here
+# proves the sign-in works (the output is hidden; it is your user record)
 run([CLI, "current-user", "me", "-o", "json"], cwd=WORK, env=ENV, echo=False)
 print(f"signed in to {HOST} as {me.user_name}")
 
@@ -314,6 +348,7 @@ PATCH = [iam.PatchSchema.URN_IETF_PARAMS_SCIM_API_MESSAGES_2_0_PATCH_OP]
 
 
 def ensure_group(name: str) -> str:
+    """The id of the workspace group `name`, created if it does not exist yet."""
     found = list(w.groups.list(filter=f'displayName eq "{name}"', attributes="id,displayName"))
     group = found[0] if found else w.groups.create(display_name=name)
     if not found:
@@ -322,6 +357,7 @@ def ensure_group(name: str) -> str:
 
 
 def add_member(group_id: str, principal_id: str) -> None:
+    """Add a user or service principal to a group (a SCIM PATCH 'add members'), unless it is already in it."""
     members = {m.value for m in (w.groups.get(group_id).members or [])}
     if principal_id not in members:
         w.groups.patch(group_id, schemas=PATCH, operations=[
@@ -358,6 +394,7 @@ import run_sql                                   # the same runner the bundle jo
 
 
 def prepare_catalog(env: str) -> None:
+    """Catalog (here, as an admin), then schemas, volume and governance functions (the job's own setup files)."""
     cat = catalog_for(env)
     try:
         spark.sql(f"CREATE CATALOG IF NOT EXISTS `{cat}` COMMENT 'FreshCart demo ({env}): AI-ready retail data for Genie'")
@@ -387,7 +424,8 @@ RAW = REPO / "data" / "raw"
 
 
 def upload_raw(env: str) -> None:
-    dst = VOLUMES / catalog_for(env) / "landing" / "raw"
+    """Copy data/raw/ into /Volumes/<catalog>/landing/raw/, keeping the folder per source system."""
+    dst = VOLUMES / catalog_for(env) / "landing" / "raw"         # a volume is mounted like a normal folder
     copied = skipped = 0
     for src in sorted(p for p in RAW.rglob("*") if p.is_file() and p.name != "README.md"):
         target = dst / src.relative_to(RAW)
@@ -440,13 +478,15 @@ print((REPO / "databricks" / "resources" / "freshcart_refresh.yml").read_text())
 # COMMAND ----------
 
 def deploy_data(env: str) -> dict:
-    working_copy("data", refresh=True)
+    """validate + deploy the data bundle to `env`; returns what the bundle created (names, ids, links)."""
+    working_copy("data", refresh=True)           # deploy exactly what is in the repository
     bundle("data", env, "validate")
     bundle("data", env, "deploy", "--auto-approve")
     return bundle_json("data", env, "summary")["resources"]
 
 
 def show_links(resources: dict) -> None:
+    """A clickable list of the resources a bundle deployed (from `bundle summary`)."""
     rows = [f'<li>{kind[:-1]} <b>{key}</b>: <a href="{r.get("url", "")}" target="_blank">{r.get("name", key)}</a></li>'
             for kind, items in resources.items() for key, r in items.items() if isinstance(r, dict)]
     displayHTML("<ul>" + "".join(rows) + "</ul>")
@@ -476,6 +516,7 @@ show_links(data_resources)
 # COMMAND ----------
 
 def run_refresh(env: str) -> None:
+    """Start the refresh job and wait for it; fails this cell if any task fails."""
     bundle("data", env, "run", "freshcart_refresh")
 
 
@@ -586,6 +627,8 @@ display(pd.DataFrame([{"table": f"gold.{t}", "rows": spark.table(f"gold.{t}").co
 
 # COMMAND ----------
 
+# The local reference runs in a separate Python process, in a copy of the repository, so it cannot touch the
+# Git folder. It prints the benchmark answers as JSON after the marker RESULT.
 LOCAL_SCRIPT = '''
 import json
 from freshcart import benchmarks, pipeline
@@ -608,6 +651,7 @@ def local_reference() -> list[dict]:
 
 
 def comparable(rows) -> list[tuple]:
+    """Rows in a form both engines agree on: numbers rounded to cents, booleans as 0/1, dates as text, sorted."""
     def value(v):
         if v is None:
             return None
@@ -621,6 +665,7 @@ def comparable(rows) -> list[tuple]:
 
 
 def same(a, b) -> bool:
+    """Equal row by row, allowing one cent of difference (SQLite sums floats, Databricks sums decimals)."""
     if len(a) != len(b):
         return False
     for ra, rb in zip(a, b):
@@ -636,6 +681,7 @@ def same(a, b) -> bool:
 reference = local_reference()
 checks = []
 for b in reference:
+    # the benchmark SQL is written with ${var.catalog} (the bundle variable); fill in this environment's catalog
     on_databricks = [tuple(r) for r in spark.sql(b["sql"].replace("${var.catalog}", CATALOG)).collect()]
     ok = same(comparable(on_databricks), comparable(b["rows"]))
     checks.append({"question": b["question"], "local rows": len(b["rows"]), "Databricks rows": len(on_databricks),
@@ -662,6 +708,7 @@ print(f"{sum(c['match'] == 'yes' for c in checks)} of {len(checks)} benchmark an
 # COMMAND ----------
 
 def deploy_genie(env: str) -> str:
+    """validate, plan and deploy the Genie bundle to `env`; returns the Genie space id."""
     working_copy("genie", refresh=True)
     bundle("genie", env, "validate")
     bundle("genie", env, "plan")
@@ -687,11 +734,12 @@ displayHTML(f'<p>Open the space: <a href="{HOST}/genie/rooms/{SPACE_ID}" target=
 # COMMAND ----------
 
 def ask(question: str, space_id: str = None) -> None:
+    """Start a Genie conversation, wait for the answer, print Genie's text and SQL, show the result table."""
     space_id = space_id or SPACE_ID
     print(f"Q: {question}")
     msg = w.genie.start_conversation_and_wait(space_id, question)
     message_id = msg.message_id or msg.id
-    for a in msg.attachments or []:
+    for a in msg.attachments or []:              # an answer has text and/or a query attachment
         if a.text and a.text.content:
             print(f"Genie: {a.text.content}")
         if a.query:
@@ -722,6 +770,7 @@ for q in ["What were net sales and margin by region last week?",
 # COMMAND ----------
 
 def job_output(name: str, env: str, job_key: str) -> None:
+    """Print the log of the latest run of a bundle job (each task's standard output)."""
     job_id = int(bundle_json(name, env, "summary")["resources"]["jobs"][job_key]["id"])
     latest = next(iter(w.jobs.list_runs(job_id=job_id, limit=1)), None)
     for task in (w.jobs.get_run(latest.run_id).tasks or []) if latest else []:
@@ -732,6 +781,7 @@ def job_output(name: str, env: str, job_key: str) -> None:
 
 
 def run_gate(env: str, mode: str = "gate") -> bool:
+    """Run the quality-gate job: mode 'gate' = all benchmarks, 'smoke' = one question. True if it passed."""
     args = ["run", "genie_quality_gate"] + ([] if mode == "gate" else ["--params", f"mode={mode}"])
     try:
         bundle("genie", env, *args)              # prints the run's progress and the gate's report
@@ -769,6 +819,8 @@ GATE_PASSED = run_gate(ENV, "gate")
 
 QUESTION = "Which store sold the most last week?"
 
+# The whole space is one JSON document (serialized_space) with a version stamp (etag). An edit in the UI changes
+# both; update_space with the etag fails if someone else changed the space in between.
 live = w.genie.get_space(SPACE_ID, include_serialized_space=True)
 content = json.loads(live.serialized_space)
 questions = content.setdefault("config", {}).setdefault("sample_questions", [])
@@ -784,7 +836,8 @@ genie_dir = working_copy("genie")
 drift_dir = WORK / "drift"                       # outside the bundle folder, so deploys never upload it
 drift_dir.mkdir(parents=True, exist_ok=True)
 plan_file = drift_dir / "plan.json"
-plan_file.write_text(json.dumps(bundle_json("genie", ENV, "plan")))
+plan_file.write_text(json.dumps(bundle_json("genie", ENV, "plan")))   # what deploy would do, as JSON
+# check_drift.py: exit 0 = safe to deploy, 2 = edited outside the bundle, 3 = deploy would delete the space
 drift = subprocess.run([sys.executable, "scripts/check_drift.py", str(plan_file), "-t", ENV, "--catalog", CATALOG,
                         "--backup-dir", str(drift_dir / "backup")],
                        cwd=genie_dir, env=cli_env(ENV), capture_output=True, text=True)
@@ -793,6 +846,7 @@ print(f"2. check_drift.py exit code {drift.returncode} (2 = edited outside the b
 
 # COMMAND ----------
 
+# Export the live space into the working copy's YAML, then compare that file with the one in git.
 sync = run([sys.executable, "scripts/sync_from_workspace.py", "-t", ENV], cwd=genie_dir, env=ENV)
 in_git = (REPO / "genie_bundle" / "resources" / "freshcart_assistant.space.yml").read_text().splitlines()
 synced = (genie_dir / "resources" / "freshcart_assistant.space.yml").read_text().splitlines()
@@ -837,7 +891,7 @@ print(f"4. rolled back to the git version: sample question present = {still_ther
 if not PROMOTE:
     print("promote = no: skipped. Set the 'promote' widget to yes and run this cell to build qa and prod.")
 else:
-    for env in ENVIRONMENTS[ENVIRONMENTS.index(ENV) + 1:]:
+    for env in ENVIRONMENTS[ENVIRONMENTS.index(ENV) + 1:]:         # the environments after this one, in order
         print(f"\n========== {env} ({catalog_for(env)}) ==========")
         prepare_catalog(env)
         upload_raw(env)
@@ -901,6 +955,7 @@ else:
         for g in ("freshcart-genie-deployers", "fc_all_regions"):
             add_member(GROUP_IDS[g], sp.id)
         cat = catalog_for(env)
+        # read-only access for the Genie quality gate; a service principal is named by its application id
         if spark.sql(f"SHOW CATALOGS LIKE '{cat}'").count():
             spark.sql(f"GRANT USE CATALOG, USE SCHEMA, SELECT, EXECUTE ON CATALOG `{cat}` TO `{sp.application_id}`")
         w.warehouses.update_permissions(WAREHOUSE_ID, access_control_list=[dbsql.WarehouseAccessControlRequest(
@@ -932,6 +987,7 @@ if not CLEANUP:
 else:
     built = ENVIRONMENTS[ENVIRONMENTS.index(ENV):] if PROMOTE else [ENV]
     for env in built:
+        # Genie first (it reads the data), then the data bundle; destroy deletes only what the bundle created
         bundle("genie", env, "destroy", "--auto-approve", check=False)
         bundle("data", env, "destroy", "--auto-approve", check=False)
         spark.sql(f"DROP CATALOG IF EXISTS `{catalog_for(env)}` CASCADE")

@@ -1,4 +1,7 @@
-"""Run notebooks/FreshCart_End_to_End_on_Databricks.py from top to bottom, offline.
+"""Run the end-to-end Databricks notebook from top to bottom, offline.
+
+The notebook's source is notebooks/FreshCart_End_to_End_on_Databricks_source.py; the .ipynb next to it is
+generated from it (freshcart/databricks_notebook.py) and must be up to date.
 
 Every Python cell runs as written, against the stand-in workspace (tests/fake_workspace.py) with the real
 Databricks CLI: both bundles are validated, deployed, run and destroyed for dev, qa and prod; Genie is asked
@@ -15,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -23,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NOTEBOOK = ROOT / "notebooks" / "FreshCart_End_to_End_on_Databricks.py"
+NOTEBOOK = ROOT / "notebooks" / "FreshCart_End_to_End_on_Databricks_source.py"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
@@ -164,6 +168,15 @@ def test_notebook_cells_are_well_formed():
     for rel in set(re.findall(r'REPO / ((?:"[^"]+" / )*"[^"]+")', NOTEBOOK.read_text())):
         parts = re.findall(r'"([^"]+)"', rel)
         assert (ROOT.joinpath(*parts)).exists(), parts
+
+
+def test_ipynb_is_generated_from_the_source():
+    from freshcart import databricks_notebook as N
+    assert N.TARGET.read_text(encoding="utf-8") == N.render(), "run: python -m freshcart.databricks_notebook"
+    nb = json.loads(N.TARGET.read_text(encoding="utf-8"))
+    assert [c["cell_type"] for c in nb["cells"]] == ["markdown" if k == "md" else "code" for k, _ in cells()]
+    assert nb["cells"][0]["source"][0].startswith("# FreshCart on Databricks")
+    assert any(c["source"] and c["source"][0].startswith("%sql") for c in nb["cells"])
 
 
 def test_notebook_end_to_end_against_the_stand_in_workspace():

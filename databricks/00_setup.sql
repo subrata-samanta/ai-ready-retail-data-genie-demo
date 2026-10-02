@@ -2,8 +2,8 @@
 -- 00 · Schemas and the landing volume (first task of the bundle job freshcart_refresh)
 -- ${catalog} is the environment's catalog (freshcart_dev, freshcart_qa or freshcart). The catalog itself
 -- is created once by an admin (CREATE CATALOG needs a metastore privilege that deployers should not
--- have): see notebooks/FreshCart_End_to_End_on_Databricks, step 4.
--- Then the raw files go to /Volumes/${catalog}/landing/raw/ (same notebook, step 5).
+-- have): see notebooks/FreshCart_End_to_End_on_Databricks, step 5.
+-- Then the raw files go to /Volumes/${catalog}/landing/raw/ (same notebook, step 6).
 -- =====================================================================================
 CREATE SCHEMA IF NOT EXISTS ${catalog}.landing    COMMENT 'Raw files exactly as delivered by source systems';
 CREATE SCHEMA IF NOT EXISTS ${catalog}.bronze     COMMENT 'Raw tables: one per feed, all columns as strings, plus audit columns';

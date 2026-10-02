@@ -3,7 +3,7 @@
 The FreshCart data product on Databricks: the Lakeflow pipeline (bronze, silver) and the refresh job (setup,
 pipeline, gold, security, semantic layer), as one Declarative Automation Bundle with the environments dev, qa and
 prod. Design, run order and commands: **[docs/09-run-on-databricks.md](../docs/09-run-on-databricks.md)**.
-From an empty workspace, run [`notebooks/FreshCart_End_to_End_on_Databricks.py`](../notebooks/FreshCart_End_to_End_on_Databricks.py).
+From an empty workspace, run [`notebooks/FreshCart_End_to_End_on_Databricks.ipynb`](../notebooks/FreshCart_End_to_End_on_Databricks.ipynb).
 
 ```bash
 databricks bundle deploy -t dev

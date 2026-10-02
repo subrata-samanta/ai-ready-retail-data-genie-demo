@@ -16,9 +16,11 @@ step 10 of the notebook does that comparison in your workspace.
 
 ## The fastest way: one notebook
 
-[`notebooks/FreshCart_End_to_End_on_Databricks.py`](../notebooks/FreshCart_End_to_End_on_Databricks.py) takes an
+[`notebooks/FreshCart_End_to_End_on_Databricks.ipynb`](../notebooks/FreshCart_End_to_End_on_Databricks.ipynb) takes an
 empty workspace to a governed Genie space in dev, then qa and prod. Add this repository to the workspace as a
-**Git folder**, open the notebook from there on **serverless** compute and run it. It:
+**Git folder**, open the notebook from there on **serverless** compute and run it. The same cells are in
+`FreshCart_End_to_End_on_Databricks_source.py` (Databricks source format, for clean diffs in reviews); the `.ipynb` is
+generated from it. The notebook:
 
 1. installs the Databricks CLI and creates the groups used by row filters, masks and permissions;
 2. creates the catalog, schemas and landing volume, and uploads `data/raw/`;

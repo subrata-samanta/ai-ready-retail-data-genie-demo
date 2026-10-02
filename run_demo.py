@@ -8,12 +8,12 @@ Steps
   2. bronze -> silver -> gold, rebuilt from scratch into warehouse/*.db
   3. data-quality rules and findings
   4. Genie benchmark ground truth and example queries, run locally
-  5. export silver/gold snapshots to data/exports/ and render docs/ with real numbers
+  5. export silver/gold snapshots to data/exports/, generate the Databricks SQL and notebook, render docs/
 """
 import argparse
 import csv
 
-from freshcart import benchmarks, config as C, docs, export_databricks, generate, pipeline, quality
+from freshcart import benchmarks, config as C, databricks_notebook, docs, export_databricks, generate, pipeline, quality
 
 EXPORT_TABLES = {
     "gold": ["dim_date", "dim_store", "dim_product", "dim_customer", "dim_promotion",
@@ -72,6 +72,7 @@ def main():
     print("STEP 5  exports, Databricks DDL and docs")
     export(con)
     export_databricks.main()
+    databricks_notebook.main()
     docs.main()
     print("\nDone. Start reading at README.md, then docs/01-business-and-questions.md")
 

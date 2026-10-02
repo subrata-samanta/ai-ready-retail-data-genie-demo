@@ -130,7 +130,7 @@ bronze, silver and gold table from the raw files, one step at a time, explaining
 Run it with `pip install -r notebooks/requirements.txt` and `jupyter notebook notebooks/`.
 
 Running it on Databricks from an empty workspace? Add this repository as a Git folder and run
-[`notebooks/FreshCart_End_to_End_on_Databricks.py`](notebooks/FreshCart_End_to_End_on_Databricks.py) on serverless
+[`notebooks/FreshCart_End_to_End_on_Databricks.ipynb`](notebooks/FreshCart_End_to_End_on_Databricks.ipynb) on serverless
 compute: catalog, schemas, raw files, the pipeline and refresh job ([`databricks/`](databricks/), a bundle), the Genie
 space, its benchmark gate, version history and promotion to qa and prod, one step at a time.
 
