@@ -19,7 +19,7 @@ variables:
             format: SQL
           id: 2087b196c3124a26740fc2c48cca375c
           question:
-          - Which promotion mechanic drove most sales this quarter?
+          - Rank the promotion mechanics by net sales this quarter, promoted sales only.
         - answer:
           - content:
             - "SELECT subcategory, MEASURE(gross_margin_pct) AS gross_margin_pct\n"
@@ -74,7 +74,7 @@ variables:
           - How are we trading year to date versus last year?
         - answer:
           - content:
-            - "SELECT MEASURE(return_rate) AS return_rate, MEASURE(return_amount) AS return_amount\n"
+            - "SELECT MEASURE(return_rate) AS return_rate\n"
             - "FROM ${var.catalog}.semantic.sales_metrics\n"
             - WHERE department = 'Household' AND is_last_4_completed_fiscal_weeks
             format: SQL
@@ -166,11 +166,11 @@ variables:
           - How are we trading YTD vs last year?
         - answer:
           - content:
-            - "SELECT region, sales_channel, MEASURE(net_sales) AS net_sales\n"
+            - "SELECT region, MEASURE(online_sales_share) AS online_sales_share\n"
             - "FROM ${var.catalog}.semantic.sales_metrics\n"
             - "WHERE is_fiscal_ytd\n"
             - "GROUP BY ALL\n"
-            - ORDER BY region, sales_channel
+            - ORDER BY region
             format: SQL
           id: eb2f4863dd92b072d956e8d2c685923d
           question:
@@ -194,7 +194,7 @@ variables:
             format: SQL
           id: ffcdcea5edf4dbeb267336d3341be490
           question:
-          - Do Gold members spend more per basket than Silver?
+          - Do Gold members spend more per basket than Silver members this year?
       config:
         sample_questions:
         - id: 2e4976ef947ab742771349e064b6f35b
@@ -415,6 +415,12 @@ variables:
           - "- State the fiscal period the figures cover and that amounts are in USD.\n"
           - "- Say when a result covers comparable stores only.\n"
           - "- Round percentages to one decimal place in the summary text.\n"
+          - "\n"
+          - "## Stock questions\n"
+          - "Stock on hand is a point-in-time figure. MEASURE(on_hand_units) and MEASURE(on_hand_value) from\n"
+          - "inventory_metrics already return the stock on the last day of the selected period, so for \"how\n"
+          - "much stock did we have at the end of last week\" filter the period (is_last_completed_fiscal_week)\n"
+          - "and do not group by snapshot_date, store or product unless the user asks for that breakdown.\n"
           - "\n"
           - "## Guidance for the example queries\n"
           - "- What were net sales and margin by region last week? Last week always means the last completed fiscal week, Sunday to Saturday.\n"

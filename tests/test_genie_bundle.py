@@ -217,3 +217,27 @@ def test_version_1_column_fields_are_rejected():
     errors = T.validate(bad)[0]
     assert any("'get_example_values' is a version 1 field; version 2 uses 'enable_format_assistance'" in e
                for e in errors), errors
+
+
+def test_gate_prints_genie_sql_for_wrong_answers():
+    import contextlib
+    import io
+    from types import SimpleNamespace as NS
+    sys.path.insert(0, str(BUNDLE / "src"))
+    import genie_quality_gate as G
+    run = NS(eval_run_id="r1", eval_run_status="DONE", num_questions=2, num_correct=1, num_needs_review=0)
+    details = {"a": NS(assessment="GOOD", assessment_reasons=[], actual_response=None, expected_response=None),
+               "b": NS(assessment="BAD", assessment_reasons=["RESULT_EXTRA_ROWS"],
+                       actual_response=NS(response="SELECT snapshot_date, MEASURE(on_hand_units)\nFROM inventory_metrics"),
+                       expected_response=NS(response="SELECT MEASURE(on_hand_units) FROM inventory_metrics"))}
+    genie = NS(genie_create_eval_run=lambda space: run, genie_get_eval_run=lambda space, rid: run,
+               genie_list_eval_results=lambda space, rid, page_size, page_token: NS(
+                   eval_results=[NS(result_id="a", question="q ok"), NS(result_id="b", question="q stock")],
+                   next_page_token=None),
+               genie_get_eval_result_details=lambda space, rid, res: details[res])
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        res = G.gate(NS(genie=genie), "s", min_accuracy=0.95, max_bad=0, min_graded=1)
+    assert not res["passed"]
+    assert "BAD  q stock" in out.getvalue() and "Genie's SQL:" in out.getvalue()
+    assert "         SELECT snapshot_date, MEASURE(on_hand_units)" in out.getvalue()

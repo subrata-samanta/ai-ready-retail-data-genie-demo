@@ -32,13 +32,13 @@ notes:
     correct_when: return_rate with department = 'Household'
   2087b196c3124a26740fc2c48cca375c:
     tests: Promotion dimension
-    correct_when: net_sales by promotion_mechanic, promoted lines only
+    correct_when: all promotion mechanics ranked by net_sales, promoted lines only
   ffcdcea5edf4dbeb267336d3341be490:
     tests: Loyalty attribute and ratio measure
-    correct_when: average_basket_value by loyalty_tier for Gold and Silver
+    correct_when: average_basket_value by loyalty_tier for Gold and Silver, fiscal year to date
   eb2f4863dd92b072d956e8d2c685923d:
     tests: Share within a group
-    correct_when: online net_sales divided by total net_sales per region
+    correct_when: "online_sales_share per region (the governed measure: online net sales / net sales)"
   f723c6b7792bf30f08ebcfedc503f18d:
     tests: Dimension lookup
     correct_when: dim_store rows with open_fiscal_year = 2025

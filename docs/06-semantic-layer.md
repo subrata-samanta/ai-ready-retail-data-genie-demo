@@ -250,6 +250,16 @@ measures:
     display_name: Promo Sales Share
     synonyms: [promo share, promotional mix, promo penetration]
     format: {type: percentage, decimal_places: {type: exact, places: 1}}
+  - name: online_net_sales
+    expr: COALESCE(SUM(net_sales_amount_usd) FILTER (WHERE sales_channel = 'Online'), 0)
+    display_name: Online Sales
+    synonyms: [online sales, e-commerce sales, web sales]
+  - name: online_sales_share
+    expr: MEASURE(online_net_sales) / NULLIF(MEASURE(net_sales), 0)
+    display_name: Online Sales Share
+    comment: Share of net sales made online (web orders, including Dark Stores). Use for online share, e-commerce penetration or channel mix.
+    synonyms: [online share, share of sales online, e-commerce share, online penetration, digital share, channel mix]
+    format: {type: percentage, decimal_places: {type: exact, places: 1}}
   - name: trading_stores
     expr: COUNT(DISTINCT store_id)
     display_name: Trading Stores

@@ -24,6 +24,12 @@ def _value(x):
     return getattr(x, "value", x)
 
 
+def _response(r) -> str:
+    """The SQL (or text) of an evaluation response, or "" when the service did not return one."""
+    text = getattr(r, "response", None)
+    return text if isinstance(text, str) else ""
+
+
 def run_benchmarks(w: WorkspaceClient, space_id: str, timeout_s: int = 1800, poll_s: int = 10) -> dict:
     run = w.genie.genie_create_eval_run(space_id)
     deadline = time.time() + timeout_s
@@ -38,7 +44,8 @@ def run_benchmarks(w: WorkspaceClient, space_id: str, timeout_s: int = 1800, pol
         for r in page.eval_results or []:
             d = w.genie.genie_get_eval_result_details(space_id, run.eval_run_id, r.result_id)
             reasons = "; ".join(str(_value(x)) for x in (d.assessment_reasons or []))
-            results.append({"question": r.question, "assessment": _value(d.assessment) or "NEEDS_REVIEW", "reason": reasons})
+            results.append({"question": r.question, "assessment": _value(d.assessment) or "NEEDS_REVIEW", "reason": reasons,
+                            "genie_sql": _response(d.actual_response), "expected_sql": _response(d.expected_response)})
         token = page.next_page_token
         if not token:
             break
@@ -70,6 +77,8 @@ def gate(w, space_id, *, min_accuracy, max_bad, min_graded) -> dict:
     for r in res["results"]:
         if r["assessment"] == "BAD":
             print(f"  BAD  {r['question']}\n       {r['reason']}")
+            if r.get("genie_sql"):                      # what Genie wrote: the starting point for a fix
+                print("       Genie's SQL:\n" + "\n".join("         " + line for line in r["genie_sql"].splitlines()))
     print("GATE PASSED" if res["passed"] else "GATE FAILED: " + "; ".join(res["reasons"]))
     return res
 

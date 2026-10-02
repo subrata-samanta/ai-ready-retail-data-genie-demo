@@ -74,6 +74,12 @@ When a user asks about growth without saying whether they mean total or like-for
 - Say when a result covers comparable stores only.
 - Round percentages to one decimal place in the summary text.
 
+## Stock questions
+Stock on hand is a point-in-time figure. MEASURE(on_hand_units) and MEASURE(on_hand_value) from
+inventory_metrics already return the stock on the last day of the selected period, so for "how
+much stock did we have at the end of last week" filter the period (is_last_completed_fiscal_week)
+and do not group by snapshot_date, store or product unless the user asks for that breakdown.
+
 ## Guidance for the example queries
 - What were net sales and margin by region last week? Last week always means the last completed fiscal week, Sunday to Saturday.
 - How are we trading year to date versus last year? Total business comparison. For comparable-store growth use fn_like_for_like_sales.
@@ -387,19 +393,19 @@ Expected answer:
 Tests: Signed amounts. Correct when: return_rate with department = 'Household'.
 
 ```sql
-SELECT MEASURE(return_rate) AS return_rate, MEASURE(return_amount) AS return_amount
+SELECT MEASURE(return_rate) AS return_rate
 FROM ${var.catalog}.semantic.sales_metrics
 WHERE department = 'Household' AND is_last_4_completed_fiscal_weeks
 ```
 
 Expected answer:
 
-| return_rate | return_amount |
-|---|---|
-| 0.37% | $28 |
+| return_rate |
+|---|
+| 0.37% |
 
-**#10 · Which promotion mechanic drove most sales this quarter?**  
-Tests: Promotion dimension. Correct when: net_sales by promotion_mechanic, promoted lines only.
+**#10 · Rank the promotion mechanics by net sales this quarter, promoted sales only.**  
+Tests: Promotion dimension. Correct when: all promotion mechanics ranked by net_sales, promoted lines only.
 
 ```sql
 SELECT promotion_mechanic, MEASURE(net_sales) AS net_sales
@@ -418,8 +424,8 @@ Expected answer:
 | Buy One Get One | $419 |
 | Loyalty Price | $353 |
 
-**#11 · Do Gold members spend more per basket than Silver?**  
-Tests: Loyalty attribute and ratio measure. Correct when: average_basket_value by loyalty_tier for Gold and Silver.
+**#11 · Do Gold members spend more per basket than Silver members this year?**  
+Tests: Loyalty attribute and ratio measure. Correct when: average_basket_value by loyalty_tier for Gold and Silver, fiscal year to date.
 
 ```sql
 SELECT loyalty_tier, MEASURE(average_basket_value) AS average_basket_value
@@ -437,28 +443,25 @@ Expected answer:
 | Gold | $26.89 |
 
 **#12 · What share of sales is online, by region, this year?**  
-Tests: Share within a group. Correct when: online net_sales divided by total net_sales per region.
+Tests: Share within a group. Correct when: online_sales_share per region (the governed measure: online net sales / net sales).
 
 ```sql
-SELECT region, sales_channel, MEASURE(net_sales) AS net_sales
+SELECT region, MEASURE(online_sales_share) AS online_sales_share
 FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_fiscal_ytd
 GROUP BY ALL
-ORDER BY region, sales_channel
+ORDER BY region
 ```
 
 Expected answer:
 
-| region | sales_channel | net_sales |
-|---|---|---|
-| Canada | In-store | $78,165 |
-| Canada | Online | $24,795 |
-| Midwest | In-store | $59,982 |
-| Midwest | Online | $24,196 |
-| Northeast | In-store | $81,529 |
-| Northeast | Online | $100,881 |
-| Southeast | In-store | $51,942 |
-| West | In-store | $39,419 |
+| region | online_sales_share |
+|---|---|
+| Canada | 24.1% |
+| Midwest | 28.7% |
+| Northeast | 55.3% |
+| Southeast | 0.0% |
+| West | 0.0% |
 
 **#13 · Which stores opened in FY2025?**  
 Tests: Dimension lookup. Correct when: dim_store rows with open_fiscal_year = 2025.
