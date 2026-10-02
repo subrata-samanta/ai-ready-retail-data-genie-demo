@@ -27,7 +27,9 @@ SPACE_KEY = "freshcart_assistant"
 SPACE_VAR = f"{SPACE_KEY}_space"
 SPACE_FILE = BUNDLE_DIR / "resources" / f"{SPACE_KEY}.space.yml"
 CATALOG_REF = "${var.catalog}"
-TARGET_CATALOGS = {"sandbox": "freshcart_dev", "dev": "freshcart_dev", "qa": "freshcart_qa", "prod": "freshcart"}
+# each target's catalog, read from databricks.yml (the only place it is written)
+TARGET_CATALOGS = {t: cfg["variables"]["catalog"] for t, cfg in
+                   yaml.safe_load((BUNDLE_DIR / "databricks.yml").read_text(encoding="utf-8"))["targets"].items()}
 SCHEMAS = ("bronze", "silver", "gold", "semantic", "governance")
 
 _HEADER = """\
@@ -254,26 +256,11 @@ def check_sql_locally(space: dict) -> list[str]:
     """Run every example and benchmark SQL on the local SQLite warehouse (built if missing)."""
     import sys
     sys.path.insert(0, str(REPO_ROOT))
-    from freshcart import config as C, metrics, pipeline
+    from freshcart import benchmarks, config as C, pipeline
     from freshcart.db import connect
     if not (C.WAREHOUSE_DIR / "gold.db").exists():
         pipeline.run(full_refresh=True, verbose=False)
-    con = connect()
-    local = render(space, "freshcart")
-    failures = []
-    for e in _get(local, ("instructions", "example_question_sqls")):
-        params = {p["name"]: (p.get("default_value") or {}).get("values", [None])[0] for p in e.get("parameters", [])}
-        try:
-            metrics.run(con, text(e["sql"]), params)
-        except Exception as ex:                                  # noqa: BLE001
-            failures.append(f"example {text(e['question'])!r} fails locally: {ex}")
-    for b in _get(local, ("benchmarks", "questions")):
-        for a in b.get("answer", []):
-            try:
-                metrics.run(con, text(a["content"]))
-            except Exception as ex:                              # noqa: BLE001
-                failures.append(f"benchmark {text(b['question'])!r} fails locally: {ex}")
-    return failures
+    return benchmarks.sql_failures(connect(), space)
 
 
 def copy_space(space: dict) -> dict:

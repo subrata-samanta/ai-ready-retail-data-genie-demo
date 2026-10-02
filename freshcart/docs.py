@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import re
 
-import yaml
 
 from . import benchmarks, bronze, config as C, contracts, metrics, quality
 from .db import connect, render_sql
@@ -110,8 +109,8 @@ def _quality(con) -> str:
 
 def _benchmarks(con) -> str:
     blocks = []
-    for b, cols, rows in benchmarks.run_benchmarks(con):
-        head = f"**#{b['id']} · {b['question']}**  \nTests: {b['tests']}. Correct when: {b['correct_when']}."
+    for i, (b, cols, rows) in enumerate(benchmarks.run_benchmarks(con), start=1):
+        head = f"**#{i} · {b['question']}**  \nTests: {b['tests']}. Correct when: {b['correct_when']}."
         if cols is None:
             blocks.append(head + "\n\n_No single expected result: graded by review or an Agent-mode benchmark._")
         else:
@@ -121,15 +120,40 @@ def _benchmarks(con) -> str:
 
 
 def _examples(con) -> str:
-    cfg = yaml.safe_load((C.GENIE_DIR / "agent_config.yaml").read_text(encoding="utf-8"))
-    titles = {e["file"].split("/")[-1]: e for e in cfg["example_queries"]}
     blocks = []
-    for name, params, cols, rows in benchmarks.run_examples(con):
-        e = titles[name]
-        sql = (C.GENIE_DIR / "example_queries" / name).read_text(encoding="utf-8").strip()
+    sql_by_title = {e["title"]: e["sql"] for e in benchmarks.load_examples()}
+    for title, params, cols, rows in benchmarks.run_examples(con):
         p = f" (run here with {params})" if params else ""
-        blocks.append(f"#### \"{e['title']}\"\n\n```sql\n{sql}\n```\n\nResult{p}:\n\n{md_table(cols, rows[:8])}")
+        blocks.append(f"#### \"{title}\"\n\n```sql\n{sql_by_title[title]}\n```\n\nResult{p}:\n\n{md_table(cols, rows[:8])}")
     return "\n\n".join(blocks)
+
+
+def _genie_sources() -> str:
+    """The space's data sources and trusted functions, from the bundle (the only definition)."""
+    space = benchmarks.load_space()
+    ds, ins = space.get("data_sources") or {}, space.get("instructions") or {}
+    rows = [(f"`{t['identifier']}`", "metric view", "") for t in ds.get("metric_views", [])]
+    for t in ds.get("tables", []):
+        cfg = t.get("column_configs", [])
+        hidden = [c["column_name"] for c in cfg if c.get("exclude")]
+        matched = [c["column_name"] for c in cfg if c.get("enable_entity_matching")]
+        notes = "; ".join(x for x in (f"entity matching on {', '.join(matched)}" if matched else "",
+                                      f"hidden: {', '.join(hidden)}" if hidden else "") if x)
+        rows.append((f"`{t['identifier']}`", "table", notes))
+    rows += [(f"`{f['identifier']}`", "trusted function", "") for f in ins.get("sql_functions", [])]
+    return md_table(["object (`${var.catalog}` = the environment's catalog)", "kind", "column settings"], rows)
+
+
+def _genie_expressions() -> str:
+    snippets = (benchmarks.load_space().get("instructions") or {}).get("sql_snippets") or {}
+    rows = [(kind.rstrip("s").capitalize(), s["display_name"], f"`{''.join(s['sql'])}`", ", ".join(s.get("synonyms", [])))
+            for kind in ("filters", "expressions", "measures") for s in snippets.get(kind, [])]
+    return md_table(["type", "name", "code", "synonyms"], rows, truncate=False)
+
+
+def _genie_instructions() -> str:
+    ins = (benchmarks.load_space().get("instructions") or {}).get("text_instructions", [])
+    return "\n\n".join("```markdown\n" + "".join(t["content"]).strip() + "\n```" for t in ins)
 
 
 def _dictionary() -> str:
@@ -172,6 +196,9 @@ def render_text(con, text: str) -> str:
     text = text.replace("<!--quality-->", _quality(con) if "<!--quality-->" in text else "")
     text = text.replace("<!--benchmarks-->", _benchmarks(con) if "<!--benchmarks-->" in text else "")
     text = text.replace("<!--examples-->", _examples(con) if "<!--examples-->" in text else "")
+    text = text.replace("<!--genie-sources-->", _genie_sources() if "<!--genie-sources-->" in text else "")
+    text = text.replace("<!--genie-expressions-->", _genie_expressions() if "<!--genie-expressions-->" in text else "")
+    text = text.replace("<!--genie-instructions-->", _genie_instructions() if "<!--genie-instructions-->" in text else "")
     text = text.replace("<!--dictionary-->", _dictionary() if "<!--dictionary-->" in text else "")
     text = text.replace("<!--feeds-->", _feeds(con) if "<!--feeds-->" in text else "")
     text = re.sub(r"\{\{(n|usd|pct|v):\s*(.*?)\}\}", lambda m: _inline(con, m), text, flags=re.S)

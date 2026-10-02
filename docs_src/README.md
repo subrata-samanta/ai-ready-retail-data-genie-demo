@@ -146,12 +146,11 @@ pipeline/silver/     one SQL file per silver table, steps numbered in comments
 pipeline/gold/       one SQL file per gold table, steps numbered in comments
 contracts/gold/      YAML contract per gold table: columns, types, comments, keys, tags
 semantic/            metric-view YAML (used locally AND on Databricks) + like-for-like function
-genie/               Genie Agent config, instructions, example queries, benchmarks
 databricks/          the Databricks version: setup, Lakeflow pipeline, gold MERGEs, governance, metric views
 tests/               13 tests incl. raw-to-gold reconciliation
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
 notebooks/           walkthrough notebooks: every table step by step; Genie version control and CI/CD
-genie_bundle/        Declarative Automation Bundle: Genie space + quality-gate job, targets sandbox/dev/qa/prod
+genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
 ```
 
 ## Design decisions in one list

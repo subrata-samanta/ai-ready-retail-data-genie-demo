@@ -347,21 +347,19 @@ class FreshCartEvaluator:
     rows as the benchmark's SQL, BAD when it doesn't, and NEEDS_REVIEW when no example matches.
     """
 
-    _CATALOG = __import__("re").compile(r"\b(freshcart_dev|freshcart_qa|freshcart)\.(?=(gold|semantic|silver)\.)")
-
     def __init__(self):
         import pathlib
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-        from freshcart import config as C, metrics, pipeline
+        from freshcart import benchmarks, config as C, pipeline
         from freshcart.db import connect
         if not (C.WAREHOUSE_DIR / "gold.db").exists():
             pipeline.run(full_refresh=True, verbose=False)
-        self._metrics, self._connect = metrics, connect
+        self._benchmarks, self._connect = benchmarks, connect
 
     def _run(self, sql, params=None):
         con = self._connect()                     # one connection per call: requests arrive on server threads
         try:
-            return self._metrics.run(con, self._CATALOG.sub("freshcart.", sql), params or {})[1]
+            return self._benchmarks.run_sql(con, sql, params)[1]
         finally:
             con.close()
 

@@ -27,6 +27,7 @@ sync:
   exclude:
     - scripts/**
     - "*.md"
+    - benchmark_notes.yml
 
 variables:
   catalog:

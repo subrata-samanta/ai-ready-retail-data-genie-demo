@@ -20,7 +20,7 @@ September 2026, but it is not executed by this repo's tests. Review it in a deve
 | 6 | [`governance/01_security.sql`](../databricks/governance/01_security.sql) | Row filters on facts, column masks, grants | SQL editor, once |
 | 7 | [`semantic/02_metric_views.sql`](../databricks/semantic/02_metric_views.sql) | The two metric views. **Generated** from `semantic/*.yaml` | SQL editor (DBR 16.4+ warehouse) |
 | 8 | [`semantic/03_fn_like_for_like_sales.sql`](../databricks/semantic/03_fn_like_for_like_sales.sql) | The trusted like-for-like function | SQL editor |
-| 9 | [`genie/agent_config.yaml`](../genie/agent_config.yaml) | Create the Genie Agent with these settings | Genie UI (Configure) |
+| 9 | [`genie_bundle/`](../genie_bundle/) | The Genie Agent and its quality-gate job, for dev, qa and prod | `databricks bundle deploy -t <target>` |
 
 ## Step 2: upload the raw files
 
@@ -50,14 +50,22 @@ Schedule it after the nightly files land. `dim_date` recomputes its rolling flag
 - Genie always queries **as the end user**, so the filters apply in every conversation.
 - Metric-view **materialisation** is not available on sources with row filters; if you need it, secure a separate aggregate table.
 
-## Step 9: create the Genie Agent
+## Step 9: deploy the Genie Agent
 
-Follow [`genie/agent_config.yaml`](../genie/agent_config.yaml): title and description, four data objects plus the function,
-hidden column, entity matching columns, three SQL expressions, six example queries (from
-[`genie/example_queries/`](../genie/example_queries/)), the general instructions, and the 15 benchmarks from
-[`genie/benchmarks.yaml`](../genie/benchmarks.yaml). Run the benchmarks and compare with the expected answers in
-[doc 7](07-genie-agent.md#benchmarks-the-expected-answers). The numbers match when the data and the as-of date are the same;
-on Databricks "today" is `current_date()`, so relative periods such as "last week" will differ from the pinned local run.
+The agent is a Declarative Automation Bundle: [`genie_bundle/`](../genie_bundle/) holds the space (data sources, column
+settings, SQL expressions, example queries, general instructions and benchmarks) and a quality-gate job, with targets
+`sandbox`, `dev`, `qa` and `prod` that differ only in catalog, title and permissions:
+
+```bash
+cd genie_bundle
+databricks bundle deploy -t dev
+databricks bundle run genie_quality_gate -t dev       # runs the benchmarks
+```
+
+Compare the benchmark results with the expected answers in [doc 7](07-genie-agent.md#benchmarks-the-expected-answers).
+The numbers match when the data and the as-of date are the same; on Databricks "today" is `current_date()`, so relative
+periods such as "last week" will differ from the pinned local run. Promotion to qa and prod, version history and rollback
+are covered in [`notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb`](../notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb).
 
 ## Keeping local and Databricks in step
 

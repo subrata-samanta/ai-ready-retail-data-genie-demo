@@ -1,4 +1,4 @@
-# Extra packages for the walkthrough notebook (the pipeline itself needs only PyYAML)
-PyYAML>=6.0
+# Extra packages for the notebooks (on top of the demo's own requirements)
+-r ../requirements.txt
 pandas>=2.0
 jupyter

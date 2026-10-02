@@ -10,10 +10,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
+      - uses: databricks/setup-cli@main            # for the Genie bundle integration test
+        with:
+          version: "1.18.0"
+      - run: pip install -r requirements.txt -r genie_bundle/requirements-dev.txt
       - name: Pipeline, checks, benchmarks, docs
         run: python run_demo.py
-      - name: Tests
+      - name: Tests (pipeline, docs, and the Genie bundle with the real Databricks CLI against a stand-in workspace)
         run: python tests/run_tests.py
       - name: Docs are up to date
         run: git diff --exit-code -- docs README.md databricks

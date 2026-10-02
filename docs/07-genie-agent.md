@@ -5,25 +5,28 @@
 [← 6 · Semantic layer](06-semantic-layer.md) · Next: [8 · Follow one receipt →](08-trace-one-receipt.md)
 
 With the data in shape, the agent configuration is short. That is the point: most of the knowledge now lives in the data
-and the semantic layer, where every tool can use it. The full configuration is in
-[`genie/agent_config.yaml`](../genie/agent_config.yaml), written so it can be reviewed in pull requests.
+and the semantic layer, where every tool can use it. The agent has a single definition, in the Declarative Automation
+Bundle [`genie_bundle/`](../genie_bundle/) ([`resources/freshcart_assistant.space.yml`](../genie_bundle/resources/freshcart_assistant.space.yml)),
+which is reviewed in pull requests and deployed to dev, qa and prod. Every table on this page is read from that file.
 
 ## What the agent can see
 
-| Object | Why it is attached |
-|---|---|
-| `freshcart.semantic.sales_metrics` | All sales, margin, basket, promotion and loyalty questions |
-| `freshcart.semantic.inventory_metrics` | Stock and availability questions |
-| `freshcart.gold.dim_store` | Store lookups and **entity matching** on store names, cities, regions |
-| `freshcart.gold.dim_product` | Product lookups and **entity matching** on categories, subcategories, brands |
-| `freshcart.semantic.fn_like_for_like_sales` | Trusted like-for-like growth |
+| object (`${var.catalog}` = the environment's catalog) | kind | column settings |
+|---|---|---|
+| `${var.catalog}.semantic.inventory_metrics` | metric view |  |
+| `${var.catalog}.semantic.sales_metrics` | metric view |  |
+| `${var.catalog}.gold.dim_product` | table | entity matching on brand, category, department, subcategory |
+| `${var.catalog}.gold.dim_store` | table | entity matching on city, region, state_province, store_format, store_name; hidden: comparable_from_fiscal_year |
+| `${var.catalog}.semantic.fn_like_for_like_sales` | trusted function |  |
 
 Four data objects and one function. Databricks recommends starting with five or fewer.
 
 **Why the dimensions are attached separately.** On Databricks the facts carry row filters (regional security).
 Genie excludes row-filtered tables from prompt matching, and entity matching must be off for views over filtered
 tables, which includes the metric views. The dimension tables are **not** filtered, so attaching them keeps
-entity matching for the values users actually type ("boston seaprt", "north east", "chips").
+entity matching for the values users actually type ("boston seaprt", "north east", "chips"). Entity matching stores
+up to 1,024 distinct values per column, so it is not used on product names; product questions use a parameterized
+example query instead. `comparable_from_fiscal_year` is hidden: use the comparable-store flag or the like-for-like function.
 
 **What is deliberately not here**: no measure definitions in the knowledge store (they live in the metric view only,
 so nothing can conflict), no join relationships (the metric views carry them), no personal data.
@@ -32,15 +35,13 @@ so nothing can conflict), no join relationships (the metric views carry them), n
 
 Business terms that are not KPIs and are not worth a column:
 
-| Type | Name | Code | Synonyms |
+| type | name | code | synonyms |
 |---|---|---|---|
-| Filter | Fresh departments | `department IN ('Produce', 'Bakery', 'Meat and Seafood', 'Deli', 'Dairy and Eggs')` | fresh, perishables |
-| Filter | Comparable stores | `is_comparable_store = true` | comp stores, LFL stores |
-| Field | Day type | `CASE WHEN day_of_week_name IN ('Saturday', 'Sunday') THEN 'Weekend' ELSE 'Weekday' END` | weekend vs weekday |
+| Filter | Fresh departments | `department IN ('Produce', 'Bakery', 'Meat and Seafood', 'Deli', 'Dairy and Eggs')` | fresh, perishables, fresh food |
+| Filter | Comparable stores | `is_comparable_store = true` | comp stores, LFL stores, same stores |
+| Expression | Day type | `CASE WHEN day_of_week_name IN ('Saturday', 'Sunday') THEN 'Weekend' ELSE 'Weekday' END` | weekend vs weekday |
 
 ## General instructions (the only free text)
-
-[`genie/general_instructions.md`](../genie/general_instructions.md)
 
 ```markdown
 ## About FreshCart and this agent
@@ -72,10 +73,15 @@ When a user asks about growth without saying whether they mean total or like-for
 - State the fiscal period the figures cover and that amounts are in USD.
 - Say when a result covers comparable stores only.
 - Round percentages to one decimal place in the summary text.
+
+## Guidance for the example queries
+- What were net sales and margin by region last week? Last week always means the last completed fiscal week, Sunday to Saturday.
+- How are we trading year to date versus last year? Total business comparison. For comparable-store growth use fn_like_for_like_sales.
 ```
 
 About 250 words: a short business narrative plus the two behaviours that cannot be expressed any other way
-(when to ask for clarification, how to write summaries). Everything else Genie needs lives lower in the stack.
+(when to ask for clarification, how to write summaries), and guidance for the example queries. Everything else Genie
+needs lives lower in the stack.
 
 ## Example SQL queries, with the answers they return on the demo data
 
@@ -85,16 +91,14 @@ for similar ones. Each was run against the demo data:
 #### "What were net sales and margin by region last week?"
 
 ```sql
--- Title (the way users ask): What were net sales and margin by region last week?
--- Usage guidance: "Last week" always means the last completed fiscal week, Sunday to Saturday.
 SELECT region,
        MEASURE(net_sales)        AS net_sales,
        MEASURE(gross_margin)     AS gross_margin,
        MEASURE(gross_margin_pct) AS gross_margin_pct
-FROM   freshcart.semantic.sales_metrics
+FROM   ${var.catalog}.semantic.sales_metrics
 WHERE  is_last_completed_fiscal_week
 GROUP BY ALL
-ORDER BY net_sales DESC;
+ORDER BY net_sales DESC
 ```
 
 Result:
@@ -107,71 +111,17 @@ Result:
 | Southeast | $1,066 | $389 | 36.5% |
 | West | $940 | $328 | 34.9% |
 
-#### "How are we trading year to date versus last year?"
-
-```sql
--- Title: How are we trading year to date versus last year?
--- Usage guidance: Total business comparison. For comparable-store growth use fn_like_for_like_sales.
-SELECT fiscal_year,
-       MEASURE(net_sales)            AS net_sales,
-       MEASURE(transactions)         AS transactions,
-       MEASURE(average_basket_value) AS average_basket_value
-FROM   freshcart.semantic.sales_metrics
-WHERE  is_fiscal_ytd OR is_prior_fiscal_ytd
-GROUP BY ALL
-ORDER BY fiscal_year;
-```
-
-Result:
-
-| fiscal_year | net_sales | transactions | average_basket_value |
-|---|---|---|---|
-| 2025 | $446,779 | 15,486 | $28.85 |
-| 2026 | $460,909 | 16,872 | $27.32 |
-
-#### "How did a store trade week by week in a fiscal year?"
-
-```sql
--- Title: How did a store trade week by week in a fiscal year?   (parameterized -> trusted asset)
--- Parameters:
---   :store_name  (String)  Exact store name from dim_store, for example FreshCart Boston Seaport
---   :fiscal_year (Integer) Fiscal year such as 2026; default to the current fiscal year
-SELECT fiscal_week,
-       fiscal_week_start_date,
-       MEASURE(net_sales)    AS net_sales,
-       MEASURE(transactions) AS transactions
-FROM   freshcart.semantic.sales_metrics
-WHERE  store_name  = :store_name
-  AND  fiscal_year = :fiscal_year
-GROUP BY ALL
-ORDER BY fiscal_week;
-```
-
-Result (run here with {'store_name': 'FreshCart Boston Seaport', 'fiscal_year': 2026}):
-
-| fiscal_week | fiscal_week_start_date | net_sales | transactions |
-|---|---|---|---|
-| 1 | 2026-02-01 | $1,266 | 60 |
-| 2 | 2026-02-08 | $2,027 | 77 |
-| 3 | 2026-02-15 | $1,293 | 64 |
-| 4 | 2026-02-22 | $1,394 | 61 |
-| 5 | 2026-03-01 | $1,605 | 73 |
-| 6 | 2026-03-08 | $1,455 | 70 |
-| 7 | 2026-03-15 | $1,784 | 73 |
-| 8 | 2026-03-22 | $1,566 | 60 |
-
 #### "Which categories rely most on promotions this quarter?"
 
 ```sql
--- Title: Which categories rely most on promotions this quarter?
 SELECT department,
        category,
        MEASURE(net_sales)         AS net_sales,
        MEASURE(promo_sales_share) AS promo_sales_share
-FROM   freshcart.semantic.sales_metrics
+FROM   ${var.catalog}.semantic.sales_metrics
 WHERE  is_current_fiscal_quarter
 GROUP BY ALL
-ORDER BY promo_sales_share DESC;
+ORDER BY promo_sales_share DESC
 ```
 
 Result:
@@ -187,51 +137,18 @@ Result:
 | Produce | Fresh Vegetables | $4,458 | 17.1% |
 | Household | Paper Goods | $7,835 | 16.6% |
 
-#### "Where are we out of stock most often in fresh?"
-
-```sql
--- Title: Where are we out of stock most often in fresh?
-SELECT region,
-       store_name,
-       category,
-       MEASURE(out_of_stock_rate) AS out_of_stock_rate,
-       MEASURE(out_of_stock_days) AS out_of_stock_days
-FROM   freshcart.semantic.inventory_metrics
-WHERE  is_last_4_completed_fiscal_weeks
-  AND  department IN ('Produce', 'Bakery', 'Meat and Seafood', 'Deli', 'Dairy and Eggs')
-GROUP BY ALL
-ORDER BY out_of_stock_rate DESC
-LIMIT 10;
-```
-
-Result:
-
-| region | store_name | category | out_of_stock_rate | out_of_stock_days |
-|---|---|---|---|---|
-| Midwest | FreshCart Chicago Lincoln Park | Milk and Cream | 21.4% | 18 |
-| Northeast | FreshCart Boston Seaport | Deli Counter | 19.6% | 11 |
-| Northeast | FreshCart Newark Fulfilment Center | Yogurt | 17.9% | 10 |
-| Midwest | FreshCart Chicago Lincoln Park | Yogurt | 14.3% | 8 |
-| Northeast | FreshCart Hartford West | Deli Counter | 14.3% | 8 |
-| Canada | FreshCart Toronto Liberty Village | Milk and Cream | 13.1% | 11 |
-| Northeast | FreshCart Boston Seaport | Cheese | 13.1% | 11 |
-| West | FreshCart Denver Highlands | Milk and Cream | 13.1% | 11 |
-
 #### "How does a product sell across regions?"
 
 ```sql
--- Title: How does a product sell across regions?   (parameterized for product names)
--- Parameters:
---   :product_search (String) Part of a product name, for example chips
 SELECT region,
        product_name,
        MEASURE(units_sold) AS units_sold,
        MEASURE(net_sales)  AS net_sales
-FROM   freshcart.semantic.sales_metrics
+FROM   ${var.catalog}.semantic.sales_metrics
 WHERE  product_name ILIKE '%' || :product_search || '%'
   AND  is_last_4_completed_fiscal_weeks
 GROUP BY ALL
-ORDER BY net_sales DESC;
+ORDER BY net_sales DESC
 ```
 
 Result (run here with {'product_search': 'chips'}):
@@ -247,11 +164,88 @@ Result (run here with {'product_search': 'chips'}):
 | Midwest | Lightly Salted Chips 200g | 32 | $70 |
 | Canada | Crunchy Sea Salt Chips 200g | 22 | $68 |
 
+#### "How are we trading year to date versus last year?"
+
+```sql
+SELECT fiscal_year,
+       MEASURE(net_sales)            AS net_sales,
+       MEASURE(transactions)         AS transactions,
+       MEASURE(average_basket_value) AS average_basket_value
+FROM   ${var.catalog}.semantic.sales_metrics
+WHERE  is_fiscal_ytd OR is_prior_fiscal_ytd
+GROUP BY ALL
+ORDER BY fiscal_year
+```
+
+Result:
+
+| fiscal_year | net_sales | transactions | average_basket_value |
+|---|---|---|---|
+| 2025 | $446,779 | 15,486 | $28.85 |
+| 2026 | $460,909 | 16,872 | $27.32 |
+
+#### "Where are we out of stock most often in fresh?"
+
+```sql
+SELECT region,
+       store_name,
+       category,
+       MEASURE(out_of_stock_rate) AS out_of_stock_rate,
+       MEASURE(out_of_stock_days) AS out_of_stock_days
+FROM   ${var.catalog}.semantic.inventory_metrics
+WHERE  is_last_4_completed_fiscal_weeks
+  AND  department IN ('Produce', 'Bakery', 'Meat and Seafood', 'Deli', 'Dairy and Eggs')
+GROUP BY ALL
+ORDER BY out_of_stock_rate DESC
+LIMIT 10
+```
+
+Result:
+
+| region | store_name | category | out_of_stock_rate | out_of_stock_days |
+|---|---|---|---|---|
+| Midwest | FreshCart Chicago Lincoln Park | Milk and Cream | 21.4% | 18 |
+| Northeast | FreshCart Boston Seaport | Deli Counter | 19.6% | 11 |
+| Northeast | FreshCart Newark Fulfilment Center | Yogurt | 17.9% | 10 |
+| Midwest | FreshCart Chicago Lincoln Park | Yogurt | 14.3% | 8 |
+| Northeast | FreshCart Hartford West | Deli Counter | 14.3% | 8 |
+| Canada | FreshCart Toronto Liberty Village | Milk and Cream | 13.1% | 11 |
+| Northeast | FreshCart Boston Seaport | Cheese | 13.1% | 11 |
+| West | FreshCart Denver Highlands | Milk and Cream | 13.1% | 11 |
+
+#### "How did a store trade week by week in a fiscal year?"
+
+```sql
+SELECT fiscal_week,
+       fiscal_week_start_date,
+       MEASURE(net_sales)    AS net_sales,
+       MEASURE(transactions) AS transactions
+FROM   ${var.catalog}.semantic.sales_metrics
+WHERE  store_name  = :store_name
+  AND  fiscal_year = :fiscal_year
+GROUP BY ALL
+ORDER BY fiscal_week
+```
+
+Result (run here with {'fiscal_year': '2026', 'store_name': 'FreshCart Boston Seaport'}):
+
+| fiscal_week | fiscal_week_start_date | net_sales | transactions |
+|---|---|---|---|
+| 1 | 2026-02-01 | $1,266 | 60 |
+| 2 | 2026-02-08 | $2,027 | 77 |
+| 3 | 2026-02-15 | $1,293 | 64 |
+| 4 | 2026-02-22 | $1,394 | 61 |
+| 5 | 2026-03-01 | $1,605 | 73 |
+| 6 | 2026-03-08 | $1,455 | 70 |
+| 7 | 2026-03-15 | $1,784 | 73 |
+| 8 | 2026-03-22 | $1,566 | 60 |
+
 ## Benchmarks: the expected answers
 
-A benchmark is a question plus the SQL that gives the right answer, signed off by the KPI owner. On Databricks you add
-them to the agent and run them to score Genie. Here they are with the answers they produce on the demo data, so you
-can ask Genie the same question and compare. Write these **before** tuning the agent; each failure tells you which
+A benchmark is a question plus the SQL that gives the right answer, signed off by the KPI owner. They are part of the
+space definition, and the bundle's `genie_quality_gate` job runs them in qa before every release (and nightly in
+prod). Here they are with the answers they produce on the demo data, so you can ask Genie the same question and
+compare. What each one tests is noted in [`genie_bundle/benchmark_notes.yml`](../genie_bundle/benchmark_notes.yml). Write these **before** tuning the agent; each failure tells you which
 layer lacks context.
 
 **#1 · What were total sales last week?**  
@@ -259,7 +253,7 @@ Tests: Default KPI and relative time. Correct when: net_sales for the last compl
 
 ```sql
 SELECT MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_last_completed_fiscal_week
 ```
 
@@ -274,7 +268,7 @@ Tests: Synonym (turnover) and value matching (north east). Correct when: net_sal
 
 ```sql
 SELECT MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE region = 'Northeast' AND is_last_completed_fiscal_week
 ```
 
@@ -289,7 +283,7 @@ Tests: Misspelled entity. Correct when: store_name = 'FreshCart Boston Seaport' 
 
 ```sql
 SELECT MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE store_name = 'FreshCart Boston Seaport' AND is_fiscal_ytd
 ```
 
@@ -304,7 +298,7 @@ Tests: Hierarchy, ratio measure, ranking. Correct when: gross_margin_pct by subc
 
 ```sql
 SELECT subcategory, MEASURE(gross_margin_pct) AS gross_margin_pct
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE category = 'Snacks' AND is_fiscal_ytd
 GROUP BY ALL
 ORDER BY gross_margin_pct DESC
@@ -323,7 +317,7 @@ Tests: Ratio aggregation trap. Correct when: ratio of summed margin to summed sa
 
 ```sql
 SELECT region, MEASURE(gross_margin_pct) AS gross_margin_pct
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_fiscal_ytd
 GROUP BY ALL
 ORDER BY region
@@ -344,7 +338,7 @@ Tests: Semi-additive measure. Correct when: stock on the last day of the week, n
 
 ```sql
 SELECT MEASURE(on_hand_units) AS produce_units_on_hand
-FROM freshcart.semantic.inventory_metrics
+FROM ${var.catalog}.semantic.inventory_metrics
 WHERE is_last_completed_fiscal_week AND department = 'Produce'
 ```
 
@@ -359,7 +353,7 @@ Tests: Time comparison with precomputed flags. Correct when: is_fiscal_ytd versu
 
 ```sql
 SELECT fiscal_year, MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_fiscal_ytd OR is_prior_fiscal_ytd
 GROUP BY ALL
 ORDER BY fiscal_year
@@ -376,7 +370,7 @@ Expected answer:
 Tests: Trusted asset. Correct when: calls fn_like_for_like_sales for the current fiscal year.
 
 ```sql
-SELECT * FROM freshcart.semantic.fn_like_for_like_sales(2026)
+SELECT * FROM ${var.catalog}.semantic.fn_like_for_like_sales(2026)
 ```
 
 Expected answer:
@@ -394,7 +388,7 @@ Tests: Signed amounts. Correct when: return_rate with department = 'Household'.
 
 ```sql
 SELECT MEASURE(return_rate) AS return_rate, MEASURE(return_amount) AS return_amount
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE department = 'Household' AND is_last_4_completed_fiscal_weeks
 ```
 
@@ -409,7 +403,7 @@ Tests: Promotion dimension. Correct when: net_sales by promotion_mechanic, promo
 
 ```sql
 SELECT promotion_mechanic, MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_current_fiscal_quarter AND is_promo_sale
 GROUP BY ALL
 ORDER BY net_sales DESC
@@ -429,7 +423,7 @@ Tests: Loyalty attribute and ratio measure. Correct when: average_basket_value b
 
 ```sql
 SELECT loyalty_tier, MEASURE(average_basket_value) AS average_basket_value
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE loyalty_tier IN ('Gold', 'Silver') AND is_fiscal_ytd
 GROUP BY ALL
 ORDER BY average_basket_value DESC
@@ -447,7 +441,7 @@ Tests: Share within a group. Correct when: online net_sales divided by total net
 
 ```sql
 SELECT region, sales_channel, MEASURE(net_sales) AS net_sales
-FROM freshcart.semantic.sales_metrics
+FROM ${var.catalog}.semantic.sales_metrics
 WHERE is_fiscal_ytd
 GROUP BY ALL
 ORDER BY region, sales_channel
@@ -466,22 +460,12 @@ Expected answer:
 | Southeast | In-store | $51,942 |
 | West | In-store | $39,419 |
 
-**#13 · How is the Midwest doing?**  
-Tests: Clarification behaviour. Correct when: asks which period before answering (grade by review or Agent-mode benchmark).
-
-_No single expected result: graded by review or an Agent-mode benchmark._
-
-**#14 · What was labour cost per store last month?**  
-Tests: Out of scope. Correct when: says labour data is not available; does not invent a query.
-
-_No single expected result: graded by review or an Agent-mode benchmark._
-
-**#15 · Which stores opened in FY2025?**  
+**#13 · Which stores opened in FY2025?**  
 Tests: Dimension lookup. Correct when: dim_store rows with open_fiscal_year = 2025.
 
 ```sql
 SELECT store_name, open_date, store_format
-FROM freshcart.gold.dim_store
+FROM ${var.catalog}.gold.dim_store
 WHERE open_fiscal_year = 2025
 ```
 
@@ -490,6 +474,122 @@ Expected answer:
 | store_name | open_date | store_format |
 |---|---|---|
 | FreshCart Mississauga Square One | 2025-06-14 | Express |
+
+**#14 · How are we trading year to date versus last year?**  
+Tests: Regression check of the trusted example query. Correct when: same result as the example query.
+
+```sql
+SELECT fiscal_year,
+       MEASURE(net_sales)            AS net_sales,
+       MEASURE(transactions)         AS transactions,
+       MEASURE(average_basket_value) AS average_basket_value
+FROM   ${var.catalog}.semantic.sales_metrics
+WHERE  is_fiscal_ytd OR is_prior_fiscal_ytd
+GROUP BY ALL
+ORDER BY fiscal_year
+```
+
+Expected answer:
+
+| fiscal_year | net_sales | transactions | average_basket_value |
+|---|---|---|---|
+| 2025 | $446,779 | 15,486 | $28.85 |
+| 2026 | $460,909 | 16,872 | $27.32 |
+
+**#15 · What were net sales and margin by region last week?**  
+Tests: Regression check of the trusted example query. Correct when: same result as the example query.
+
+```sql
+SELECT region,
+       MEASURE(net_sales)        AS net_sales,
+       MEASURE(gross_margin)     AS gross_margin,
+       MEASURE(gross_margin_pct) AS gross_margin_pct
+FROM   ${var.catalog}.semantic.sales_metrics
+WHERE  is_last_completed_fiscal_week
+GROUP BY ALL
+ORDER BY net_sales DESC
+```
+
+Expected answer:
+
+| region | net_sales | gross_margin | gross_margin_pct |
+|---|---|---|---|
+| Northeast | $5,580 | $2,004 | 35.9% |
+| Canada | $2,706 | $1,020 | 37.7% |
+| Midwest | $2,543 | $912 | 35.8% |
+| Southeast | $1,066 | $389 | 36.5% |
+| West | $940 | $328 | 34.9% |
+
+**#16 · Where are we out of stock most often in fresh?**  
+Tests: Regression check of the trusted example query. Correct when: same result as the example query.
+
+```sql
+SELECT region,
+       store_name,
+       category,
+       MEASURE(out_of_stock_rate) AS out_of_stock_rate,
+       MEASURE(out_of_stock_days) AS out_of_stock_days
+FROM   ${var.catalog}.semantic.inventory_metrics
+WHERE  is_last_4_completed_fiscal_weeks
+  AND  department IN ('Produce', 'Bakery', 'Meat and Seafood', 'Deli', 'Dairy and Eggs')
+GROUP BY ALL
+ORDER BY out_of_stock_rate DESC
+LIMIT 10
+```
+
+Expected answer:
+
+| region | store_name | category | out_of_stock_rate | out_of_stock_days |
+|---|---|---|---|---|
+| Midwest | FreshCart Chicago Lincoln Park | Milk and Cream | 21.4% | 18 |
+| Northeast | FreshCart Boston Seaport | Deli Counter | 19.6% | 11 |
+| Northeast | FreshCart Newark Fulfilment Center | Yogurt | 17.9% | 10 |
+| Midwest | FreshCart Chicago Lincoln Park | Yogurt | 14.3% | 8 |
+| Northeast | FreshCart Hartford West | Deli Counter | 14.3% | 8 |
+| Canada | FreshCart Toronto Liberty Village | Milk and Cream | 13.1% | 11 |
+| Northeast | FreshCart Boston Seaport | Cheese | 13.1% | 11 |
+| West | FreshCart Denver Highlands | Milk and Cream | 13.1% | 11 |
+| Northeast | FreshCart Boston Seaport | Ready Meals | 11.9% | 10 |
+| Midwest | FreshCart Chicago Lincoln Park | Fresh Meat | 11.3% | 19 |
+
+**#17 · Which categories rely most on promotions this quarter?**  
+Tests: Regression check of the trusted example query. Correct when: same result as the example query.
+
+```sql
+SELECT department,
+       category,
+       MEASURE(net_sales)         AS net_sales,
+       MEASURE(promo_sales_share) AS promo_sales_share
+FROM   ${var.catalog}.semantic.sales_metrics
+WHERE  is_current_fiscal_quarter
+GROUP BY ALL
+ORDER BY promo_sales_share DESC
+```
+
+Expected answer:
+
+| department | category | net_sales | promo_sales_share |
+|---|---|---|---|
+| Grocery | Snacks | $7,502 | 32.1% |
+| Household | Cleaning | $7,894 | 27.2% |
+| Deli | Deli Counter | $7,643 | 19.7% |
+| Bakery | Bread | $2,654 | 19.4% |
+| Dairy and Eggs | Cheese | $6,237 | 17.8% |
+| Grocery | Beverages | $13,703 | 17.1% |
+| Produce | Fresh Vegetables | $4,458 | 17.1% |
+| Household | Paper Goods | $7,835 | 16.6% |
+| Meat and Seafood | Fresh Meat | $10,107 | 16.0% |
+| Meat and Seafood | Seafood | $7,077 | 14.2% |
+
+**#18 · How is the Midwest doing?**  
+Tests: Clarification behaviour. Correct when: asks which period before answering (grade by review or Agent-mode benchmark).
+
+_No single expected result: graded by review or an Agent-mode benchmark._
+
+**#19 · What was labour cost per store last month?**  
+Tests: Out of scope. Correct when: says labour data is not available; does not invent a query.
+
+_No single expected result: graded by review or an Agent-mode benchmark._
 
 ## When Genie gets it wrong: fix at the lowest layer
 

@@ -1,0 +1,51 @@
+# Reviewer notes for the Genie benchmarks. The benchmarks themselves (question + correct SQL) live only in
+# resources/freshcart_assistant.space.yml; this file adds, per benchmark id, what it tests and when an answer is
+# correct (shown in docs/07-genie-agent.md), plus questions graded by review only (they have no single SQL answer).
+# Benchmarks without a note are the regression checks generated from the trusted example queries.
+notes:
+  5e4bdd4c92748039f1c5d4999865f28e:
+    tests: Default KPI and relative time
+    correct_when: net_sales for the last completed fiscal week
+  4c7cb6f9eeaff531be3d5dd82c8bde3d:
+    tests: Synonym (turnover) and value matching (north east)
+    correct_when: net_sales with region = 'Northeast'
+  88df4d91d780051bdd0755e1ae6cd7b8:
+    tests: Misspelled entity
+    correct_when: store_name = 'FreshCart Boston Seaport' and fiscal year to date
+  301512fb9c3d68eaf32d984cbb876399:
+    tests: Hierarchy, ratio measure, ranking
+    correct_when: gross_margin_pct by subcategory within category Snacks
+  8d83fb271b937073fcb0dcb927dd01ea:
+    tests: Ratio aggregation trap
+    correct_when: ratio of summed margin to summed sales, never an average of line percentages
+  46014956a7f4ac5420d996f2ef0eaabb:
+    tests: Semi-additive measure
+    correct_when: stock on the last day of the week, not the sum of 7 daily snapshots
+  e6363ac6e263187f034835af0af716c7:
+    tests: Time comparison with precomputed flags
+    correct_when: is_fiscal_ytd versus is_prior_fiscal_ytd (same fiscal days)
+  84fc8a15bdb7e0bb749d50c5d1473b47:
+    tests: Trusted asset
+    correct_when: calls fn_like_for_like_sales for the current fiscal year
+  7d5267998ae46e9298ea244020ec1162:
+    tests: Signed amounts
+    correct_when: return_rate with department = 'Household'
+  2087b196c3124a26740fc2c48cca375c:
+    tests: Promotion dimension
+    correct_when: net_sales by promotion_mechanic, promoted lines only
+  ffcdcea5edf4dbeb267336d3341be490:
+    tests: Loyalty attribute and ratio measure
+    correct_when: average_basket_value by loyalty_tier for Gold and Silver
+  eb2f4863dd92b072d956e8d2c685923d:
+    tests: Share within a group
+    correct_when: online net_sales divided by total net_sales per region
+  f723c6b7792bf30f08ebcfedc503f18d:
+    tests: Dimension lookup
+    correct_when: dim_store rows with open_fiscal_year = 2025
+review_only:
+- question: How is the Midwest doing?
+  tests: Clarification behaviour
+  correct_when: asks which period before answering (grade by review or Agent-mode benchmark)
+- question: What was labour cost per store last month?
+  tests: Out of scope
+  correct_when: says labour data is not available; does not invent a query

@@ -202,3 +202,9 @@ def test_bundle_with_the_real_databricks_cli():
     finally:
         ws.stop()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_benchmark_notes_refer_to_existing_benchmarks():
+    notes = yaml.safe_load((BUNDLE / "benchmark_notes.yml").read_text())["notes"]
+    ids = {b["id"] for b in SPACE["benchmarks"]["questions"]}
+    assert set(notes) <= ids, f"notes for benchmarks that no longer exist: {set(notes) - ids}"

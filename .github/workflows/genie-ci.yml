@@ -1,11 +1,11 @@
-# Genie space bundle: checks on every pull request (no Databricks workspace needed)
+# Genie space bundle: checks on every pull request that touches it (no Databricks workspace needed)
 #
 #  1. the space definition is valid, canonical and uses ${var.catalog}; every SQL in it runs
-#  2. tests, including `databricks bundle validate / deploy / plan / generate` with the real
-#     Databricks CLI against an in-memory stand-in workspace (tests/fake_workspace.py)
+#  2. `databricks bundle validate` for every target
 #  3. reviewers get a readable list of what changed in the space (job summary)
 #
-# Make "genie-ci / checks" a required status check on main.
+# The test suite (including the bundle integration test with the real Databricks CLI) runs once, in ci.yml.
+# Make "genie-ci / checks" and "demo / run-demo" required status checks on main.
 name: genie-ci
 
 on:
@@ -13,7 +13,6 @@ on:
     paths:
       - "genie_bundle/**"
       - "semantic/**"
-      - "tests/test_genie_bundle.py"
       - "tests/fake_workspace.py"
       - ".github/workflows/genie-*.yml"
   push:
@@ -48,8 +47,13 @@ jobs:
       - name: Validate the space definition (+ every SQL on the local warehouse)
         run: python genie_bundle/scripts/validate_space.py --sql
 
-      - name: Tests (real Databricks CLI against a stand-in workspace)
-        run: python tests/run_tests.py
+      - name: bundle validate, every target (against the stand-in workspace)
+        run: |
+          python tests/fake_workspace.py 8765 & sleep 3
+          cd genie_bundle
+          for t in sandbox dev qa prod; do
+            DATABRICKS_HOST=http://127.0.0.1:8765 DATABRICKS_TOKEN=local databricks bundle validate -t "$t"
+          done
 
       - name: What changed in the Genie space
         if: github.event_name == 'pull_request'

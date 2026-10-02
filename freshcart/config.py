@@ -14,7 +14,7 @@ EXPORT_DIR = ROOT / "data" / "exports"      # CSV snapshots of silver and gold (
 PIPELINE_DIR = ROOT / "pipeline"
 CONTRACTS_DIR = ROOT / "contracts"
 SEMANTIC_DIR = ROOT / "semantic"
-GENIE_DIR = ROOT / "genie"
+GENIE_BUNDLE_DIR = ROOT / "genie_bundle"   # the Genie space (Declarative Automation Bundle)
 DOCS_SRC_DIR = ROOT / "docs_src"
 DOCS_DIR = ROOT / "docs"
 
