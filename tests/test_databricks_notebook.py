@@ -115,9 +115,14 @@ class _DBUtils:
         self.notebook = type("N", (), {"entry_point": None})()       # context lookups fall back to cwd
 
 
-def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None) -> tuple[dict, str, object]:
+def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None, until: str | None = None,
+                 setup=None) -> tuple[dict, str, object]:
+    """Run the notebook's Python cells in order (until the markdown cell containing `until`, if given).
+    `setup(workspace)` runs first, to prepare the stand-in workspace."""
     from fake_workspace import FakeWorkspace, FreshCartEvaluator
     ws = FakeWorkspace.start(evaluator=FreshCartEvaluator())
+    if setup:
+        setup(ws)
     tmp = Path(tempfile.mkdtemp(prefix="e2e_notebook_"))
     work, volumes = tmp / "work", tmp / "Volumes"
     (work / "cli").mkdir(parents=True)
@@ -136,6 +141,8 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
     os.chdir(ROOT / "notebooks")
     try:
         for i, (kind, src) in enumerate(cells()):
+            if until and kind == "md" and until in src:
+                break
             if kind != "py":
                 continue
             for old, new in replacements.items():
@@ -185,11 +192,23 @@ def test_notebook_end_to_end_against_the_stand_in_workspace():
     if cli is None:
         print("      (Databricks CLI 1.14+ not found: notebook run skipped)")
         return
+    def leftover_local_group(ws):                 # what an earlier version of the notebook created
+        ws.state.scim["Groups"]["6001"] = {"id": "6001", "displayName": "freshcart-business-users", "members": [],
+                                           "meta": {"resourceType": "WorkspaceGroup"}}
+
     ns, out, ws = run_notebook(cli, {"promote": "yes", "cleanup": "yes"},
-                               {"CREATE_SERVICE_PRINCIPALS = False": "CREATE_SERVICE_PRINCIPALS = True"})
+                               {"CREATE_SERVICE_PRINCIPALS = False": "CREATE_SERVICE_PRINCIPALS = True"},
+                               setup=leftover_local_group)
     statements = "\n".join(ns["spark"].statements)
-    # steps 4-6: groups, catalogs, setup SQL with the catalog filled in, raw files in the volume
-    assert {"fc_all_regions", "freshcart-business-users"} <= {g["displayName"] for g in ws.state.scim["Groups"].values()}
+    # steps 4-6: account groups (the workspace-local leftover replaced), catalogs, setup SQL, raw files
+    groups = {g["displayName"]: g for g in ws.state.scim["Groups"].values()}
+    assert {"fc_all_regions", "freshcart-business-users", "fc_crm_admins"} <= set(groups)
+    assert all(g["meta"]["resourceType"] == "Group" for g in groups.values()), "all groups are account groups"
+    assert "replaced the workspace-local group freshcart-business-users" in out
+    assert set(ns["GROUP_KIND"].values()) == {"account"}
+    me = "1001"
+    assert all(any(m["value"] == me for m in groups[g]["members"]) for g in ns["GROUPS"])
+    assert not any(m["value"] == me for m in groups["fc_crm_admins"].get("members", []))
     for cat in ("freshcart_dev", "freshcart_qa", "freshcart"):
         assert f"CREATE CATALOG IF NOT EXISTS `{cat}`" in statements
         assert f"CREATE VOLUME IF NOT EXISTS {cat}.landing.raw" in statements
@@ -211,3 +230,20 @@ def test_notebook_end_to_end_against_the_stand_in_workspace():
     assert "Files: 6 uploaded" in out and "Files: 8 uploaded" not in out, "drift files must stay out of the bundle"
     assert "No active deployment found" not in out
     assert not ws.state.spaces and not ws.state.pipelines and not ws.state.jobs, "cleanup left resources behind"
+
+
+def test_notebook_falls_back_to_workspace_groups_without_the_identity_api():
+    from test_genie_bundle import _cli
+    cli = _cli()
+    if cli is None:
+        print("      (Databricks CLI 1.14+ not found: notebook run skipped)")
+        return
+
+    def no_identity_api(ws):
+        ws.state.identity_api = False
+
+    ns, out, ws = run_notebook(cli, {}, until="## Step 5", setup=no_identity_api)
+    assert set(ns["GROUP_KIND"].values()) == {"workspace"}
+    assert "Unity Catalog grants to them will be skipped" in out
+    groups = {g["displayName"]: g for g in ws.state.scim["Groups"].values()}
+    assert all(any(m["value"] == "1001" for m in groups[g]["members"]) for g in ns["GROUPS"])

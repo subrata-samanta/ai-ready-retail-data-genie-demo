@@ -95,10 +95,23 @@ def summary(statement: str) -> str:
     return " ".join(code.split())[:110]
 
 
+GRANTEE = re.compile(r"\bTO\s+`?([^`;]+?)`?\s*$", re.I | re.S)
+
+
+def is_missing_grantee(statement: str, error: Exception) -> bool:
+    """A GRANT to a principal Unity Catalog does not know (for example a workspace-local group)."""
+    return statement.lstrip().upper().startswith("GRANT ") and "PRINCIPAL_DOES_NOT_EXIST" in str(error)
+
+
 def run_files(spark, files, catalog: str, as_of_date: str = "today", echo=print) -> int:
-    """Run every statement of every file, in order. Returns the number of statements run."""
+    """Run every statement of every file, in order. Returns the number of statements run.
+
+    One kind of failure is reported and skipped instead of stopping the run: a GRANT to a group that is not an
+    account group. Unity Catalog can grant access only to account groups; without it, that group's members
+    cannot read the data, but nothing else is affected (the owner and admins keep their access).
+    """
     params = {"catalog": catalog, "as_of_date": as_of_date}
-    count = 0
+    count, skipped = 0, []
     for path in files:
         statements = [render(s, params) for s in split_statements(Path(path).read_text(encoding="utf-8"))]
         echo(f"== {path} ({len(statements)} statements)")
@@ -106,11 +119,21 @@ def run_files(spark, files, catalog: str, as_of_date: str = "today", echo=print)
             started = time.time()
             try:
                 spark.sql(statement)
-            except Exception:
+            except Exception as e:
+                if is_missing_grantee(statement, e):
+                    m = GRANTEE.search(statement)
+                    skipped.append(m.group(1) if m else "?")
+                    echo(f"   WARNING skipped: {summary(statement)}\n"
+                         f"      {skipped[-1]} is not an account group, so Unity Catalog cannot grant it access.")
+                    continue
                 echo(f"   FAILED in {path}:\n{statement}")
                 raise
             count += 1
             echo(f"   ok {time.time() - started:5.1f}s  {summary(statement)}")
+    if skipped:
+        echo(f"WARNING: {len(skipped)} grant(s) skipped for {', '.join(sorted(set(skipped)))}: create it as an account "
+             "group (account console, or workspace Settings > Identity and access > Groups in an identity-federated "
+             "workspace) and run the job again to apply them.")
     return count
 
 

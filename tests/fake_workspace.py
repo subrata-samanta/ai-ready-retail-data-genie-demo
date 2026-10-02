@@ -39,6 +39,8 @@ class _State:
         self.pipelines: dict[str, dict] = {}
         self.runs: dict[int, dict] = {}
         self.scim: dict[str, dict[str, dict]] = {"Groups": {}, "ServicePrincipals": {}}
+        self.account_groups: dict[str, dict] = {}       # identity API: groups of the account
+        self.identity_api = True                        # False: the workspace has no identity API (404)
         self.host = ""
         self.eval_runs: dict[str, dict] = {}
         self.messages: dict[str, dict] = {}
@@ -131,6 +133,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._pipelines(method, p, body)
             if p.startswith("/api/2.0/preview/scim/v2/Groups") or p.startswith("/api/2.0/preview/scim/v2/ServicePrincipals"):
                 return self._scim(method, p, q, body)
+            if p.startswith("/api/2.0/identity/"):
+                return self._identity(method, p, body)
             if p == "/api/2.1/unity-catalog/current-metastore-assignment":
                 return self._send(200, {"metastore_id": "11111111-2222-3333-4444-555555555555",
                                         "workspace_id": 1234567890123456, "default_catalog_name": "main"})
@@ -306,6 +310,36 @@ class _Handler(BaseHTTPRequestHandler):
             run["view"]["status"] = {"state": "TERMINATED", "termination_details": {
                 "code": "SUCCESS" if ok else "RUN_EXECUTION_ERROR", "type": "SUCCESS" if ok else "CLIENT_ERROR"}}
 
+    # --------------------------------------------- identity API (account groups, through the workspace)
+    def _identity(self, method, p, body):
+        st = self.state
+        if not st.identity_api:
+            return self._missing("ENDPOINT_NOT_FOUND")
+        parts = p.split("/")                                          # ['', 'api', '2.0', 'identity', ...]
+        if p == "/api/2.0/identity/groups":
+            if method == "POST":
+                if any(g["group_name"] == body.get("group_name") for g in st.account_groups.values()):
+                    return self._send(409, {"error_code": "RESOURCE_ALREADY_EXISTS", "message": "group exists"})
+                gid = str(9000 + len(st.account_groups))
+                st.account_groups[gid] = {"group_id": gid, "group_name": body.get("group_name"),
+                                          "account_id": "acc-1"}
+                return self._send(200, st.account_groups[gid])
+            return self._send(200, {"groups": list(st.account_groups.values())})
+        if p == "/api/2.0/identity/workspace-assignments" and method == "POST":
+            gid = str(body["principal_id"])
+            if gid in st.scim["Groups"]:
+                return self._send(409, {"error_code": "RESOURCE_ALREADY_EXISTS", "message": "already assigned"})
+            g = st.account_groups[gid]
+            st.scim["Groups"][gid] = {"id": gid, "displayName": g["group_name"], "members": [],
+                                      "meta": {"resourceType": "Group"}}
+            return self._send(200, {"principal_id": int(gid), "principal_type": "GROUP"})
+        if len(parts) == 7 and parts[4] == "groups" and parts[6] == "direct-members" and method == "POST":
+            members = st.scim["Groups"][parts[5]].setdefault("members", [])
+            if all(m["value"] != str(body["principal_id"]) for m in members):
+                members.append({"value": str(body["principal_id"])})
+            return self._send(200, {"principal_id": body["principal_id"], "group_id": int(parts[5])})
+        return self._missing("identity endpoint not implemented in the fake")
+
     # ------------------------------------------------------------- SCIM: groups, service principals
     def _scim(self, method, p, q, body):
         st = self.state
@@ -318,6 +352,8 @@ class _Handler(BaseHTTPRequestHandler):
                 item = {**body, "id": oid}
                 if kind == "ServicePrincipals":
                     item.setdefault("applicationId", str(uuid.uuid4()))
+                else:                                                 # the workspace SCIM API makes local groups
+                    item["meta"] = {"resourceType": "WorkspaceGroup"}
                 items[oid] = item
                 return self._send(200, item)
             found = list(items.values())

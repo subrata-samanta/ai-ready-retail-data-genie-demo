@@ -76,7 +76,11 @@ Then, from the repository root:
 ```
 
 The groups used below (`fc_all_regions`, `fc_region_<region>`, `fc_crm_admins`, `freshcart-business-users`,
-`freshcart-genie-developers`, `freshcart-genie-deployers`) must exist before the first deploy.
+`freshcart-genie-developers`, `freshcart-genie-deployers`) must exist before the first deploy, as **account
+groups**: Unity Catalog grants data access only to account groups, not to workspace-local groups. In an
+identity-federated workspace, an admin creates them in *Settings* → *Identity and access* → *Groups*; the notebook
+creates them through the workspace's identity API. A grant to a group that is not an account group is reported by the
+refresh job and skipped, so it never blocks the rest of the build.
 
 ## The pipeline
 

@@ -140,3 +140,29 @@ def test_job_scripts_do_not_exit_on_success():
     for script in set(scripts):
         code = script.read_text()
         assert "sys.exit(main())" not in code and "sys.exit(0)" not in code, f"{script.name} exits on success"
+
+
+def test_grant_to_a_non_account_group_is_skipped_with_a_warning():
+    class Spark:
+        def __init__(self):
+            self.statements = []
+
+        def sql(self, s):
+            self.statements.append(s)
+            if s.startswith("GRANT"):
+                raise RuntimeError("[ErrorClass=PRINCIPAL_DOES_NOT_EXIST.PRINCIPAL_DOES_NOT_EXIST] Could not find principal")
+
+    out = []
+    n = R.run_files(Spark(), [DATA / "governance" / "01_security.sql"], "freshcart_dev", echo=out.append)
+    assert n == 2 and any("freshcart-business-users is not an account group" in line for line in out)
+    assert out[-1].startswith("WARNING: 5 grant(s) skipped for freshcart-business-users")
+
+    class Broken(Spark):
+        def sql(self, s):
+            raise RuntimeError("[TABLE_OR_VIEW_NOT_FOUND] gold.fct_sales_line")
+
+    try:
+        R.run_files(Broken(), [DATA / "governance" / "01_security.sql"], "freshcart_dev", echo=out.append)
+        raise AssertionError("any other error must stop the run")
+    except RuntimeError:
+        pass

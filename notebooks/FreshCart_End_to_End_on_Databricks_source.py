@@ -337,29 +337,85 @@ print(f"signed in to {HOST} as {me.user_name}")
 # MAGIC | `freshcart-genie-developers` | Builds the Genie space (manage in dev, view in qa and prod). | yes |
 # MAGIC | `freshcart-genie-deployers` | The CI/CD service principals that deploy the bundles (step 16). | yes, while you deploy by hand |
 # MAGIC
-# MAGIC The row filter and mask functions (`databricks/governance/00_functions.sql`) accept both account groups (the
-# MAGIC recommended kind, managed in the account console) and the workspace groups this cell creates, so the notebook works
-# MAGIC without account-admin access. New group memberships can take a minute to apply.
+# MAGIC **Account groups, not workspace groups.** Unity Catalog can grant data access only to **account groups** (groups
+# MAGIC that belong to the Databricks account, which every workspace of the account can use). A *workspace-local* group, the
+# MAGIC older kind that exists in one workspace only, can own Genie and job permissions but cannot be granted `SELECT`.
+# MAGIC This cell therefore creates the groups as account groups, through the workspace's identity API, and adds them to
+# MAGIC this workspace. If a previous run created workspace-local groups with these names, they are replaced.
+# MAGIC
+# MAGIC If your workspace does not offer that API, the cell keeps workspace groups and says so. Everything still runs
+# MAGIC (you own the catalog, so you can read it), and the refresh job reports the grants it skipped. To fix it later,
+# MAGIC create the groups in *Settings* → *Identity and access* → *Groups* → *Add group* (in an identity-federated
+# MAGIC workspace that creates account groups) and re-run this cell and step 8.
+# MAGIC
+# MAGIC The row filter and mask functions (`databricks/governance/00_functions.sql`) accept both kinds of group. New group
+# MAGIC memberships can take a minute to apply.
 
 # COMMAND ----------
 
+from databricks.sdk.service import iamv2
+
 GROUPS = ["fc_all_regions", "freshcart-business-users", "freshcart-genie-developers", "freshcart-genie-deployers"]
 PATCH = [iam.PatchSchema.URN_IETF_PARAMS_SCIM_API_MESSAGES_2_0_PATCH_OP]
+GROUP_KIND = {}                                  # group name -> "account" or "workspace"
+
+
+def workspace_view(name: str):
+    """(id, kind) of the group `name` as this workspace sees it, or None. kind is 'account' or 'workspace'."""
+    for g in w.groups.list(filter=f'displayName eq "{name}"', attributes="id,displayName,meta"):
+        local = bool(g.meta and g.meta.resource_type == "WorkspaceGroup")
+        return g.id, "workspace" if local else "account"
+    return None
+
+
+def create_account_group(name: str) -> str:
+    """Create `name` in the account (or find it there) and add it to this workspace; returns its id."""
+    group = next((g for g in w.workspace_iam_v2.list_groups_proxy() if g.group_name == name), None) \
+        or w.workspace_iam_v2.create_group_proxy(iamv2.Group(group_name=name))
+    try:
+        w.workspace_iam_v2.create_workspace_assignment_proxy(iamv2.WorkspaceAssignment(
+            principal_id=int(group.group_id), principal_type=iamv2.PrincipalType.GROUP))
+    except Exception as e:                       # noqa: BLE001  (already assigned to this workspace)
+        if "already" not in str(e).lower():
+            raise
+    for _ in range(30):                          # the workspace sees a new assignment within seconds
+        if (workspace_view(name) or (None, ""))[1] == "account":
+            break
+        time.sleep(2)
+    return group.group_id
 
 
 def ensure_group(name: str) -> str:
-    """The id of the workspace group `name`, created if it does not exist yet."""
-    found = list(w.groups.list(filter=f'displayName eq "{name}"', attributes="id,displayName"))
-    group = found[0] if found else w.groups.create(display_name=name)
-    if not found:
-        print(f"created group {name}")
-    return group.id
+    """The id of group `name`, preferably an account group; see the explanation above this cell."""
+    found = workspace_view(name)
+    if found and found[1] == "account":
+        GROUP_KIND[name] = "account"
+        return found[0]
+    try:
+        next(iter(w.workspace_iam_v2.list_groups_proxy(page_size=1)), None)   # is the identity API here?
+        if found:                                # a workspace-local group from an earlier run: free its name
+            w.groups.delete(found[0])
+            print(f"replaced the workspace-local group {name} by an account group")
+        gid = create_account_group(name)
+        GROUP_KIND[name] = "account"
+        if not found:
+            print(f"created account group {name}")
+        return gid
+    except Exception as e:                       # noqa: BLE001
+        GROUP_KIND[name] = "workspace"
+        print(f"could not create the account group {name} ({str(e).splitlines()[0][:120]}); using a workspace group")
+        return (workspace_view(name) or (w.groups.create(display_name=name).id, ""))[0]
 
 
 def add_member(group_id: str, principal_id: str) -> None:
-    """Add a user or service principal to a group (a SCIM PATCH 'add members'), unless it is already in it."""
+    """Add a user or service principal to a group, unless it is already in it."""
     members = {m.value for m in (w.groups.get(group_id).members or [])}
-    if principal_id not in members:
+    if principal_id in members:
+        return
+    try:                                         # account groups: membership is managed in the account
+        w.workspace_iam_v2.create_direct_group_member_proxy(
+            int(group_id), iamv2.DirectGroupMember(principal_id=int(principal_id)))
+    except Exception:                            # noqa: BLE001  (workspace groups, or no identity API)
         w.groups.patch(group_id, schemas=PATCH, operations=[
             iam.Patch(op=iam.PatchOp.ADD, path="members", value=[{"value": principal_id}])])
 
@@ -367,7 +423,9 @@ def add_member(group_id: str, principal_id: str) -> None:
 GROUP_IDS = {g: ensure_group(g) for g in GROUPS + ["fc_crm_admins"]}
 for g in GROUPS:
     add_member(GROUP_IDS[g], me.id)
-print(f"{me.user_name} is in: {', '.join(GROUPS)} (and not in fc_crm_admins)")
+display(pd.DataFrame([{"group": g, "kind": GROUP_KIND[g], "you are a member": g in GROUPS} for g in GROUP_IDS]))
+if "workspace" in GROUP_KIND.values():
+    print("Some groups are workspace groups: Unity Catalog grants to them will be skipped (see the note above).")
 
 # COMMAND ----------
 
@@ -1003,6 +1061,8 @@ else:
 # MAGIC | Step 3 | download fails | The compute has no internet access. Install the CLI on your laptop, or use the workspace's web terminal, and run the same `databricks bundle` commands there. |
 # MAGIC | Step 5 | `CREATE CATALOG` fails | No default storage for new catalogs: set the **catalog** widget to an existing catalog (for example `workspace`), or ask an account admin for a storage location. |
 # MAGIC | Step 7 or 11 | a group does not exist | Re-run step 4. |
+# MAGIC | Step 8 | `WARNING ... grant(s) skipped` | The groups are workspace groups, which Unity Catalog cannot grant access to (step 4 explains it). Create them as account groups and run step 4 and step 8 again. |
+# MAGIC | Step 8 | `PRINCIPAL_DOES_NOT_EXIST` in an older version | Pull the latest version of the Git folder: grants to workspace groups are now reported instead of failing the job. |
 # MAGIC | Step 8 | pipeline update failed | Open the pipeline link from step 7: the failing table and its error are shown in the graph. |
 # MAGIC | Step 9 | zero rows in the facts | Group membership takes a minute to apply: wait and re-run the cell. |
 # MAGIC | Step 10 | an answer does not match | The row shows which question, so which tables, to compare. A different **as_of_date** changes every relative period. |
