@@ -19,6 +19,7 @@ on:
     branches: [main]
     paths:
       - "genie_bundle/**"
+  workflow_dispatch:                       # run it by hand from the Actions tab
 
 permissions:
   contents: read

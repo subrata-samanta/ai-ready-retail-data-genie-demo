@@ -7,6 +7,7 @@
 #      genie-dev-snapshot-<UTC time> (the version history of dev: every snapshot stays reachable and can
 #      be restored with genie-rollback, environment dev, to = that tag), and open/update a pull request.
 #
+# The base branch is the repository's default branch.
 # Note: pull requests created with the default GITHUB_TOKEN don't trigger other workflows. To run
 # genie-ci on the sync PR automatically, store a GitHub App token or fine-grained PAT as GENIE_SYNC_TOKEN.
 name: genie-dev-sync
@@ -34,11 +35,12 @@ jobs:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_AUTH_TYPE: github-oidc
+      BASE: ${{ github.event.repository.default_branch }}     # main, or whatever this repository's default is
       GH_TOKEN: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
       - uses: actions/setup-python@v5
         with:
@@ -57,7 +59,7 @@ jobs:
         if: steps.cfg.outputs.ready == 'true'
         run: |
           FILE=genie_bundle/resources/freshcart_assistant.space.yml
-          if git diff --quiet -- "$FILE"; then echo "dev matches main"; exit 0; fi
+          if git diff --quiet -- "$FILE"; then echo "dev matches $BASE"; exit 0; fi
           python genie_bundle/scripts/validate_space.py || echo "::warning::the dev space has validation errors; see the PR checks"
           STAMP=$(date -u +%Y%m%dT%H%MZ)
           git config user.name "genie-dev-sync"
@@ -68,7 +70,7 @@ jobs:
           git tag "genie-dev-snapshot-$STAMP"
           git push --force origin genie/dev-sync
           git push origin "genie-dev-snapshot-$STAMP"
-          gh pr view genie/dev-sync >/dev/null 2>&1 || gh pr create --base main --head genie/dev-sync \
+          gh pr view genie/dev-sync >/dev/null 2>&1 || gh pr create --base "$BASE" --head genie/dev-sync \
             --title "Genie: sync changes made in dev" \
             --body "Changes made in the dev Genie space UI, exported by genie-dev-sync. Review the change list in the checks, then merge to release to qa and prod."
           echo "Snapshot genie-dev-snapshot-$STAMP" >> "$GITHUB_STEP_SUMMARY"
