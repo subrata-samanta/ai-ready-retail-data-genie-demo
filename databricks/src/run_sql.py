@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 import time
 from pathlib import Path
 
@@ -105,7 +104,11 @@ def run_files(spark, files, catalog: str, as_of_date: str = "today", echo=print)
         echo(f"== {path} ({len(statements)} statements)")
         for statement in statements:
             started = time.time()
-            spark.sql(statement)
+            try:
+                spark.sql(statement)
+            except Exception:
+                echo(f"   FAILED in {path}:\n{statement}")
+                raise
             count += 1
             echo(f"   ok {time.time() - started:5.1f}s  {summary(statement)}")
     return count
@@ -127,4 +130,6 @@ def main(argv=None, spark=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Do not end with sys.exit: a Databricks Python script task runs inside IPython, where exiting with code 0 still
+    # raises SystemExit and marks the task as failed. A failing statement raises its own error, which fails the task.
+    main()

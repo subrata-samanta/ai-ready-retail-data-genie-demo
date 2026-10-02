@@ -125,3 +125,18 @@ def test_job_sql_parses_and_merges_match_the_gold_tables():
                 names = [s.alias_or_name for s in source.selects]
                 assert names == columns[tree.this.name], (tree.this.name, names, columns[tree.this.name])
     assert len(columns) == 7
+
+
+def test_job_scripts_do_not_exit_on_success():
+    """On Databricks a Python script task runs inside IPython: sys.exit(0) raises SystemExit and fails the task."""
+    scripts = []
+    for bundle in (DATA, ROOT / "genie_bundle"):
+        for path in (bundle / "resources").glob("*.yml"):
+            for job in (yaml.safe_load(path.read_text()).get("resources", {}).get("jobs") or {}).values():
+                for task in job["tasks"]:
+                    if task.get("spark_python_task"):
+                        scripts.append((bundle / "resources" / task["spark_python_task"]["python_file"]).resolve())
+    assert len(set(scripts)) == 2, scripts
+    for script in set(scripts):
+        code = script.read_text()
+        assert "sys.exit(main())" not in code and "sys.exit(0)" not in code, f"{script.name} exits on success"
