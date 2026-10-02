@@ -2,3 +2,4 @@
 -r ../requirements.txt
 databricks-sdk>=0.145.0
 sqlglot>=25          # parses the data bundle's SQL as Databricks SQL in tests/test_data_bundle.py
+pandas               # preinstalled on Databricks; the end-to-end notebook uses it (tests/test_databricks_notebook.py)
