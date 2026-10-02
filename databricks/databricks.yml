@@ -1,0 +1,94 @@
+# FreshCart data: the Lakeflow pipeline (bronze + silver) and the refresh job (setup, pipeline, gold,
+# security, semantic), as one Declarative Automation Bundle with the same environments as the Genie bundle:
+#     databricks bundle deploy -t <dev | qa | prod>
+#     databricks bundle run freshcart_refresh -t <dev | qa | prod>
+#
+#   resources/freshcart_pipeline.yml   bronze streaming tables + silver materialized views (pipelines/*.sql)
+#   resources/freshcart_refresh.yml    the job that builds everything in order (src/run_sql.py runs the SQL files)
+#
+# The SQL refers to the catalog as ${catalog} and to "today" as ${as_of_date}. The pipeline receives both
+# as parameters; src/run_sql.py substitutes them for the other files. So one set of SQL serves every
+# environment. Deploy the Genie bundle (../genie_bundle) after this one: the space reads these tables.
+#
+# First time in a new workspace: notebooks/FreshCart_End_to_End_on_Databricks does every step.
+
+bundle:
+  name: freshcart-data
+  engine: direct
+  databricks_cli_version: ">= 1.14.0"
+
+include:
+  - resources/*.yml
+
+sync:
+  exclude:
+    - "*.md"
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for this environment's FreshCart data (created once by an admin)
+  as_of_date:
+    description: >-
+      The day the data treats as today (relative periods such as "last week" are computed from it).
+      The demo files end on 2026-09-26, so the demo uses 2026-09-27. Set to "today" for live daily files.
+    default: "2026-09-27"
+  title_suffix:
+    description: Appended to job and pipeline names so environments can't be confused
+    default: ""
+  developers_group:
+    description: Group that builds the data products
+    default: freshcart-genie-developers
+  deployers_group:
+    description: Group of the CI/CD service principals that deploy the bundle (CAN_MANAGE)
+    default: freshcart-genie-deployers
+
+targets:
+  # Shared dev: built from the main branch, and what the dev Genie space reads.
+  dev:
+    mode: production
+    default: true
+    workspace:
+      # host: https://<dev-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart_dev
+      title_suffix: " [DEV]"
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_MANAGE
+        group_name: ${var.developers_group}
+
+  qa:
+    mode: production
+    workspace:
+      # host: https://<qa-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart_qa
+      title_suffix: " [QA]"
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+
+  prod:
+    mode: production
+    workspace:
+      # host: https://<prod-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+    resources:
+      jobs:
+        freshcart_refresh:
+          schedule:                                   # nightly, after the source files land (and before
+            quartz_cron_expression: "0 0 5 * * ?"     # the Genie quality gate's 06:30 regression run)
+            timezone_id: UTC
+            pause_status: UNPAUSED

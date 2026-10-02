@@ -1,7 +1,8 @@
-# Genie space bundle: checks on every pull request that touches it (no Databricks workspace needed)
+# The two bundles (genie_bundle/ and the data bundle databricks/): checks on every pull request that touches
+# them (no Databricks workspace needed)
 #
 #  1. the space definition is valid, canonical and uses ${var.catalog}; every SQL in it runs
-#  2. `databricks bundle validate` for every target
+#  2. `databricks bundle validate` for every target of both bundles
 #  3. reviewers get a readable list of what changed in the space (job summary)
 #
 # The test suite (including the bundle integration test with the real Databricks CLI) runs once, in ci.yml.
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - "genie_bundle/**"
+      - "databricks/**"
       - "semantic/**"
       - "tests/fake_workspace.py"
       - ".github/workflows/genie-*.yml"
@@ -19,6 +21,7 @@ on:
     branches: [main]
     paths:
       - "genie_bundle/**"
+      - "databricks/**"
   workflow_dispatch:                       # run it by hand from the Actions tab
 
 permissions:
@@ -48,13 +51,14 @@ jobs:
       - name: Validate the space definition (+ every SQL on the local warehouse)
         run: python genie_bundle/scripts/validate_space.py --sql
 
-      - name: bundle validate, every target (against the stand-in workspace)
+      - name: bundle validate, every target of both bundles (against the stand-in workspace)
+        env:
+          DATABRICKS_HOST: http://127.0.0.1:8765
+          DATABRICKS_TOKEN: local
         run: |
           python tests/fake_workspace.py 8765 & sleep 3
-          cd genie_bundle
-          for t in sandbox dev qa prod; do
-            DATABRICKS_HOST=http://127.0.0.1:8765 DATABRICKS_TOKEN=local databricks bundle validate -t "$t"
-          done
+          for t in dev qa prod; do (cd databricks && databricks bundle validate -t "$t"); done
+          for t in sandbox dev qa prod; do (cd genie_bundle && databricks bundle validate -t "$t"); done
 
       - name: What changed in the Genie space
         if: github.event_name == 'pull_request'

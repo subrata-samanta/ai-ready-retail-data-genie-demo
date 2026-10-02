@@ -3,7 +3,7 @@
 -- Dimensions are created before facts so foreign keys can reference them.
 -- Note: dimension primary-key columns must be NOT NULL; constraints are informational.
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.dim_date (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.dim_date (
   calendar_date                    DATE          NOT NULL COMMENT 'Calendar day. Join key for sales_date and snapshot_date on the facts.',
   day_of_week_name                 STRING                 COMMENT 'Monday to Sunday. FreshCart weeks run Sunday to Saturday.',
   fiscal_year                      INT                    COMMENT 'FreshCart fiscal year, named for the calendar year it starts in. FY2026 runs from Sunday 1 Feb 2026 to Saturday 30 Jan 2027.',
@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.dim_date (
   CONSTRAINT pk_dim_date PRIMARY KEY (calendar_date) RELY
 )
 COMMENT 'FreshCart fiscal calendar, one row per calendar day from FY2010 to FY2027. Use to convert dates to fiscal weeks, periods, quarters and years and to filter relative periods such as last week or year to date. Rolling flags are recomputed on every run relative to the as-of date of the pipeline.';
-ALTER TABLE freshcart.gold.dim_date SET TAGS ('domain' = 'retail_performance', 'grain' = 'day');
+ALTER TABLE ${catalog}.gold.dim_date SET TAGS ('domain' = 'retail_performance', 'grain' = 'day');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.dim_store (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.dim_store (
   store_id                       STRING        NOT NULL COMMENT 'FreshCart store number without leading zeros, for example 1042. Join key to the facts.',
   store_name                     STRING        NOT NULL COMMENT 'Trading name, for example FreshCart Boston Seaport. Use when a question names a store.',
   store_format                   STRING        NOT NULL COMMENT 'One of: Supercenter, Neighborhood Market, Express, Dark Store. Dark Stores fulfil online orders only.',
@@ -42,9 +42,9 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.dim_store (
 )
 COMMENT 'One row per FreshCart store or Dark Store with current attributes, plus an UNKNOWN member. Use to filter or group sales and stock by store, format, city, state, region or country, and for store lists such as openings. Attribute history is in silver.store_history.'
 CLUSTER BY (region);
-ALTER TABLE freshcart.gold.dim_store SET TAGS ('domain' = 'retail_performance', 'grain' = 'store');
+ALTER TABLE ${catalog}.gold.dim_store SET TAGS ('domain' = 'retail_performance', 'grain' = 'store');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.dim_product (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.dim_product (
   product_id       STRING        NOT NULL COMMENT 'FreshCart item number without leading zeros. Join key to the facts.',
   product_name     STRING        NOT NULL COMMENT 'Shelf description, for example Crunchy Sea Salt Chips 200g.',
   brand            STRING                 COMMENT 'Brand name. FreshCart own-brand products use FreshCart or FreshCart Select.',
@@ -58,9 +58,9 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.dim_product (
 )
 COMMENT 'One row per product (SKU) with the current merchandise hierarchy, plus an UNKNOWN member. Use to filter or group by department, category, subcategory, brand or private label.'
 CLUSTER BY (department, category);
-ALTER TABLE freshcart.gold.dim_product SET TAGS ('domain' = 'retail_performance', 'grain' = 'product');
+ALTER TABLE ${catalog}.gold.dim_product SET TAGS ('domain' = 'retail_performance', 'grain' = 'product');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.dim_customer (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.dim_customer (
   customer_id     STRING        NOT NULL COMMENT 'Pseudonymous loyalty customer id (SHA-256 of the card number), or ANONYMOUS.',
   loyalty_tier    STRING        NOT NULL COMMENT 'Gold, Silver or Bronze; Anonymous for non-members; Unknown for new members not yet in the CRM extract.',
   age_band        STRING                 COMMENT 'Age band derived from date of birth, for example 35-44. The date of birth itself is never stored here.',
@@ -70,9 +70,9 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.dim_customer (
   CONSTRAINT pk_dim_customer PRIMARY KEY (customer_id) RELY
 )
 COMMENT 'One row per loyalty customer, identified only by a pseudonymous id, plus the ANONYMOUS member for baskets without a loyalty card. Contains no names, emails or dates of birth. Use to group sales by loyalty tier, age band or home store.';
-ALTER TABLE freshcart.gold.dim_customer SET TAGS ('domain' = 'retail_performance', 'grain' = 'customer', 'contains_pii' = 'false');
+ALTER TABLE ${catalog}.gold.dim_customer SET TAGS ('domain' = 'retail_performance', 'grain' = 'customer', 'contains_pii' = 'false');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.dim_promotion (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.dim_promotion (
   promotion_id       STRING        NOT NULL COMMENT 'Promotion code, for example BG26W33, or NO_PROMO.',
   promotion_name     STRING        NOT NULL COMMENT 'Promotion description shown in marketing, for example Snack Attack - Buy one get one free.',
   promotion_mechanic STRING        NOT NULL COMMENT 'Buy One Get One, Percent Off, Multi-buy, Loyalty Price, or No Promotion.',
@@ -81,9 +81,9 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.dim_promotion (
   CONSTRAINT pk_dim_promotion PRIMARY KEY (promotion_id) RELY
 )
 COMMENT 'One row per promotion, plus NO_PROMO for lines sold at full price. Use to group sales by promotion or promotion mechanic.';
-ALTER TABLE freshcart.gold.dim_promotion SET TAGS ('domain' = 'retail_performance', 'grain' = 'promotion');
+ALTER TABLE ${catalog}.gold.dim_promotion SET TAGS ('domain' = 'retail_performance', 'grain' = 'promotion');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.fct_sales_line (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.fct_sales_line (
   sales_line_id          STRING        NOT NULL COMMENT 'Unique id of the line: channel, store or order, receipt and line number.',
   transaction_id         STRING        NOT NULL COMMENT 'Receipt or online order id. COUNT(DISTINCT transaction_id) gives transactions (baskets).',
   sales_date             DATE          NOT NULL COMMENT 'Business date of the sale in store local time. Join to dim_date.calendar_date for fiscal periods.',
@@ -106,18 +106,18 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.fct_sales_line (
   is_loyalty_sale        BOOLEAN       NOT NULL COMMENT 'TRUE when a loyalty card was scanned on the transaction.',
   _source_ingested_at    TIMESTAMP              COMMENT 'Pipeline audit column: when the source file landed in bronze. Not for analysis.',
   CONSTRAINT pk_fct_sales_line PRIMARY KEY (sales_line_id) RELY,
-  CONSTRAINT fk_fct_sales_line_sales_date FOREIGN KEY (sales_date) REFERENCES freshcart.gold.dim_date (calendar_date),
-  CONSTRAINT fk_fct_sales_line_store_id FOREIGN KEY (store_id) REFERENCES freshcart.gold.dim_store (store_id),
-  CONSTRAINT fk_fct_sales_line_product_id FOREIGN KEY (product_id) REFERENCES freshcart.gold.dim_product (product_id),
-  CONSTRAINT fk_fct_sales_line_customer_id FOREIGN KEY (customer_id) REFERENCES freshcart.gold.dim_customer (customer_id),
-  CONSTRAINT fk_fct_sales_line_promotion_id FOREIGN KEY (promotion_id) REFERENCES freshcart.gold.dim_promotion (promotion_id)
+  CONSTRAINT fk_fct_sales_line_sales_date FOREIGN KEY (sales_date) REFERENCES ${catalog}.gold.dim_date (calendar_date),
+  CONSTRAINT fk_fct_sales_line_store_id FOREIGN KEY (store_id) REFERENCES ${catalog}.gold.dim_store (store_id),
+  CONSTRAINT fk_fct_sales_line_product_id FOREIGN KEY (product_id) REFERENCES ${catalog}.gold.dim_product (product_id),
+  CONSTRAINT fk_fct_sales_line_customer_id FOREIGN KEY (customer_id) REFERENCES ${catalog}.gold.dim_customer (customer_id),
+  CONSTRAINT fk_fct_sales_line_promotion_id FOREIGN KEY (promotion_id) REFERENCES ${catalog}.gold.dim_promotion (promotion_id)
 )
 COMMENT 'Sales fact. One row per sold or returned item line on a FreshCart receipt or online order (voids, cancelled orders and training transactions excluded), since FY2025. Answers questions about sales, revenue, units, baskets, margin, returns, promotions and loyalty by day, store and product. All amounts are USD and exclude sales tax unless the column name says local.'
 CLUSTER BY (sales_date, store_id);
-ALTER TABLE freshcart.gold.fct_sales_line SET TAGS ('domain' = 'retail_performance', 'grain' = 'sales_line', 'genie_ready' = 'true');
-ALTER TABLE freshcart.gold.fct_sales_line ALTER COLUMN region SET TAGS ('purpose' = 'security_only');
+ALTER TABLE ${catalog}.gold.fct_sales_line SET TAGS ('domain' = 'retail_performance', 'grain' = 'sales_line', 'genie_ready' = 'true');
+ALTER TABLE ${catalog}.gold.fct_sales_line ALTER COLUMN region SET TAGS ('purpose' = 'security_only');
 
-CREATE TABLE IF NOT EXISTS freshcart.gold.fct_inventory_daily (
+CREATE TABLE IF NOT EXISTS ${catalog}.gold.fct_inventory_daily (
   snapshot_date     DATE          NOT NULL COMMENT 'Day of the close-of-business stock count. Join to dim_date.calendar_date.',
   store_id          STRING        NOT NULL COMMENT 'Store holding the stock.',
   product_id        STRING        NOT NULL COMMENT 'Product in stock.',
@@ -126,11 +126,11 @@ CREATE TABLE IF NOT EXISTS freshcart.gold.fct_inventory_daily (
   on_hand_value_usd DECIMAL(18,2) NOT NULL COMMENT 'Value of on-hand stock at standard cost, USD. Semi-additive like on_hand_units.',
   is_out_of_stock   BOOLEAN       NOT NULL COMMENT 'TRUE when a ranged, active product had zero sellable stock at close of business.',
   CONSTRAINT pk_fct_inventory_daily PRIMARY KEY (snapshot_date, store_id, product_id) RELY,
-  CONSTRAINT fk_fct_inventory_daily_snapshot_date FOREIGN KEY (snapshot_date) REFERENCES freshcart.gold.dim_date (calendar_date),
-  CONSTRAINT fk_fct_inventory_daily_store_id FOREIGN KEY (store_id) REFERENCES freshcart.gold.dim_store (store_id),
-  CONSTRAINT fk_fct_inventory_daily_product_id FOREIGN KEY (product_id) REFERENCES freshcart.gold.dim_product (product_id)
+  CONSTRAINT fk_fct_inventory_daily_snapshot_date FOREIGN KEY (snapshot_date) REFERENCES ${catalog}.gold.dim_date (calendar_date),
+  CONSTRAINT fk_fct_inventory_daily_store_id FOREIGN KEY (store_id) REFERENCES ${catalog}.gold.dim_store (store_id),
+  CONSTRAINT fk_fct_inventory_daily_product_id FOREIGN KEY (product_id) REFERENCES ${catalog}.gold.dim_product (product_id)
 )
 COMMENT 'Daily stock position. One row per store, ranged product and day, from nightly snapshots covering the last 13 fiscal weeks. Use for stock on hand, stock value and out-of-stock questions. Stock levels must not be summed across days.'
 CLUSTER BY (snapshot_date, store_id);
-ALTER TABLE freshcart.gold.fct_inventory_daily SET TAGS ('domain' = 'retail_performance', 'grain' = 'store_product_day', 'genie_ready' = 'true');
-ALTER TABLE freshcart.gold.fct_inventory_daily ALTER COLUMN region SET TAGS ('purpose' = 'security_only');
+ALTER TABLE ${catalog}.gold.fct_inventory_daily SET TAGS ('domain' = 'retail_performance', 'grain' = 'store_product_day', 'genie_ready' = 'true');
+ALTER TABLE ${catalog}.gold.fct_inventory_daily ALTER COLUMN region SET TAGS ('purpose' = 'security_only');

@@ -70,7 +70,7 @@ def _q(text: str) -> str:
 
 
 def databricks_ddl(c: dict) -> str:
-    t = f'{C.CATALOG}.gold.{c["table"]}'
+    t = f'{C.DATABRICKS_CATALOG}.gold.{c["table"]}'
     width = max(len(col["name"]) for col in c["columns"])
     lines = []
     for col in c["columns"]:
@@ -79,7 +79,7 @@ def databricks_ddl(c: dict) -> str:
     lines.append(f'  CONSTRAINT pk_{c["table"]} PRIMARY KEY ({", ".join(c["primary_key"])}) RELY')
     for fk in c.get("foreign_keys", []):
         lines.append(f'  CONSTRAINT fk_{c["table"]}_{fk["column"]} FOREIGN KEY ({fk["column"]}) '
-                     f'REFERENCES {C.CATALOG}.gold.{fk["references"]} ({fk["ref_column"]})')
+                     f'REFERENCES {C.DATABRICKS_CATALOG}.gold.{fk["references"]} ({fk["ref_column"]})')
     ddl = f"CREATE TABLE IF NOT EXISTS {t} (\n" + ",\n".join(lines) + f"\n)\nCOMMENT {_q(c['comment'])}"
     if c.get("cluster_by"):
         ddl += f'\nCLUSTER BY ({", ".join(c["cluster_by"])})'

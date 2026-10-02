@@ -33,3 +33,6 @@ RANDOM_SEED = 42
 # Unity Catalog names used by the Databricks version. The local engine maps
 # freshcart.<layer>.<table> to the attached SQLite database <layer>.<table>.
 CATALOG = "freshcart"
+# How the generated Databricks SQL names the catalog: the bundle job (databricks/src/run_sql.py) and the
+# pipeline replace it with the environment's catalog (freshcart_dev, freshcart_qa or freshcart).
+DATABRICKS_CATALOG = "${catalog}"

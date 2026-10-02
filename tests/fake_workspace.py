@@ -1,9 +1,12 @@
 """A minimal, in-memory stand-in for a Databricks workspace, for running the real Databricks CLI
 (`databricks bundle validate / plan / deploy / generate / summary` and `databricks genie ...`) offline.
 
-It implements just the REST endpoints those commands use for a bundle that contains Genie spaces:
-current user, workspace files (bundle files, deployment lock and state), Genie spaces (create, get,
-update with etag, trash) and permissions. It is a test double, not an emulator of Databricks.
+It implements just the REST endpoints those commands use for the two bundles in this repo: current
+user, workspace files (bundle files, deployment lock and state), Genie spaces (create, get, update with
+etag, trash), jobs, pipelines and permissions, plus what the end-to-end notebook uses: groups and service
+principals (SCIM), the current metastore, job runs and Genie query results. A job run executes the
+quality-gate script for real (against this workspace); every other task is reported as succeeded without
+running. It is a test double, not an emulator of Databricks.
 
     python tests/fake_workspace.py 8765            # then: DATABRICKS_HOST=http://127.0.0.1:8765 DATABRICKS_TOKEN=x
 
@@ -33,6 +36,10 @@ class _State:
         self.spaces: dict[str, dict] = {}
         self.permissions: dict[str, list] = {}
         self.jobs: dict[int, dict] = {}
+        self.pipelines: dict[str, dict] = {}
+        self.runs: dict[int, dict] = {}
+        self.scim: dict[str, dict[str, dict]] = {"Groups": {}, "ServicePrincipals": {}}
+        self.host = ""
         self.eval_runs: dict[str, dict] = {}
         self.messages: dict[str, dict] = {}
         self.requests: list[dict] = []
@@ -120,6 +127,13 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._genie_runtime(method, p, q, body)
             if p.startswith("/api/2.2/jobs/") or p.startswith("/api/2.1/jobs/"):
                 return self._jobs(method, p, q, body)
+            if p == "/api/2.0/pipelines" or p.startswith("/api/2.0/pipelines/"):
+                return self._pipelines(method, p, body)
+            if p.startswith("/api/2.0/preview/scim/v2/Groups") or p.startswith("/api/2.0/preview/scim/v2/ServicePrincipals"):
+                return self._scim(method, p, q, body)
+            if p == "/api/2.1/unity-catalog/current-metastore-assignment":
+                return self._send(200, {"metastore_id": "11111111-2222-3333-4444-555555555555",
+                                        "workspace_id": 1234567890123456, "default_catalog_name": "main"})
             if p.startswith("/api/2.0/genie/spaces/"):
                 sid = p.split("/")[5]
                 sp = st.spaces.get(sid)
@@ -177,6 +191,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(200, raw=st.files[path])
             if p == "/api/2.0/workspace/delete":
                 path = _norm(body.get("path", "/"))
+                children = [x for x in list(st.files) + list(st.dirs) if x.startswith(path + "/")]
+                if children and not body.get("recursive"):
+                    return self._send(400, {"error_code": "DIRECTORY_NOT_EMPTY",
+                                            "message": f"Folder ({path}) is not empty"})
                 for f in [f for f in st.files if f == path or f.startswith(path + "/")]:
                     st.files.pop(f)
                 st.dirs = {d for d in st.dirs if not (d == path or d.startswith(path + "/"))} | {"/", "/Workspace"}
@@ -190,13 +208,31 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"objects": [{"path": f, "object_type": "FILE"} for f in sorted(kids)]
                                         + [{"path": d, "object_type": "DIRECTORY"} for d in sorted(subdirs)]})
             if p.startswith("/api/2.0/sql/warehouses"):
-                return self._send(200, {"warehouses": [{"id": "wh-0001", "name": "Serverless Starter Warehouse"}]})
+                return self._send(200, {"warehouses": [{"id": "wh-0001", "name": "Serverless Starter Warehouse",
+                                                         "enable_serverless_compute": True, "state": "RUNNING"}]})
             return self._send(200, {})
 
     # ------------------------------------------------------------------- jobs (deploy only)
     def _jobs(self, method, p, q, body):
         st = self.state
         op = p.rsplit("/", 1)[-1]
+        if op == "run-now":
+            return self._run_now(int(body["job_id"]), body.get("job_parameters") or {})
+        if p.endswith("/runs/get"):
+            run = st.runs.get(int(q.get("run_id", 0)))
+            return self._send(200, run["view"]) if run else self._missing("run not found")
+        if p.endswith("/runs/get-output"):
+            rid = int(q.get("run_id", 0))
+            run = next((r for r in st.runs.values() if rid == r["view"]["run_id"]
+                        or rid in [t["run_id"] for t in r["view"]["tasks"]]), None)
+            if run is None:
+                return self._missing("run not found")
+            return self._send(200, {"logs": run["logs"], "metadata": run["view"]})
+        if p.endswith("/runs/list"):
+            job_id = int(q.get("job_id", 0))
+            runs = sorted((r["view"] for r in st.runs.values() if r["view"]["job_id"] == job_id),
+                          key=lambda v: -v["run_id"])[:int(q.get("limit", 25))]
+            return self._send(200, {"runs": runs, "has_more": False})
         if op == "create":
             job_id = 1000 + len(st.jobs) + 1
             st.jobs[job_id] = body
@@ -218,6 +254,120 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {})
         if op == "list":
             return self._send(200, {"jobs": [{"job_id": k, "settings": v} for k, v in st.jobs.items()]})
+        return self._send(200, {})
+
+    def _run_now(self, job_id: int, overrides: dict):
+        """Start a job run in the background (like Databricks): python tasks named genie_quality_gate.py are
+        executed against this workspace; every other task just succeeds."""
+        st = self.state
+        settings = st.jobs[job_id]
+        params = {p["name"]: str(p.get("default", "")) for p in settings.get("parameters", [])}
+        params.update({k: str(v) for k, v in overrides.items()})
+        run_id = 5000 + len(st.runs) * 10 + 1
+        tasks = [{"run_id": run_id + i, "task_key": t.get("task_key"), "state": {"life_cycle_state": "RUNNING"}}
+                 for i, t in enumerate(settings.get("tasks", []), start=1)]
+        view = {"run_id": run_id, "job_id": job_id, "number_in_job": len(st.runs) + 1,
+                "run_page_url": f"{st.host}/jobs/{job_id}/runs/{run_id}", "tasks": tasks,
+                "state": {"life_cycle_state": "RUNNING", "state_message": ""}, "status": {"state": "RUNNING"}}
+        st.runs[run_id] = {"view": view, "logs": ""}
+        threading.Thread(target=self._execute, args=(run_id, settings, params), daemon=True).start()
+        return self._send(200, {"run_id": run_id, "number_in_job": view["number_in_job"]})
+
+    def _execute(self, run_id: int, settings: dict, params: dict):
+        import os
+        import subprocess
+        import tempfile
+        st = self.state
+        logs, ok = [], True
+        for task, view in zip(settings.get("tasks", []), st.runs[run_id]["view"]["tasks"]):
+            py = task.get("spark_python_task") or {}
+            result = "SUCCESS"
+            if py.get("python_file", "").endswith("genie_quality_gate.py"):
+                args = list(py.get("parameters", []))
+                for k, v in params.items():
+                    args = [a.replace("{{job.parameters.%s}}" % k, v) for a in args]
+                with st.lock:
+                    code = st.files.get(_norm(py["python_file"]), b"")
+                with tempfile.NamedTemporaryFile("wb", suffix=".py", delete=False) as fh:
+                    fh.write(code)
+                env = {**os.environ, "DATABRICKS_HOST": st.host, "DATABRICKS_TOKEN": "fake"}
+                env.pop("DATABRICKS_CONFIG_PROFILE", None)
+                p = subprocess.run([sys.executable, fh.name, *args], capture_output=True, text=True, env=env)
+                os.unlink(fh.name)
+                logs.append(p.stdout + p.stderr)
+                if p.returncode != 0:
+                    result, ok = "FAILED", False
+            view["state"] = {"life_cycle_state": "TERMINATED", "result_state": result}
+        with st.lock:
+            run = st.runs[run_id]
+            run["logs"] = "\n".join(logs)
+            run["view"]["state"] = {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS" if ok else "FAILED",
+                                    "state_message": "" if ok else "a task failed"}
+            run["view"]["status"] = {"state": "TERMINATED", "termination_details": {
+                "code": "SUCCESS" if ok else "RUN_EXECUTION_ERROR", "type": "SUCCESS" if ok else "CLIENT_ERROR"}}
+
+    # ------------------------------------------------------------- SCIM: groups, service principals
+    def _scim(self, method, p, q, body):
+        st = self.state
+        parts = p.split("/")                                          # ['', 'api', '2.0', 'preview', 'scim', 'v2', kind, id]
+        kind = parts[6]
+        items = st.scim[kind]
+        if len(parts) == 7:
+            if method == "POST":
+                oid = str(7000 + sum(len(v) for v in st.scim.values()))
+                item = {**body, "id": oid}
+                if kind == "ServicePrincipals":
+                    item.setdefault("applicationId", str(uuid.uuid4()))
+                items[oid] = item
+                return self._send(200, item)
+            found = list(items.values())
+            flt = q.get("filter", "")
+            if flt.startswith("displayName eq "):
+                name = flt[len("displayName eq "):].strip('"')
+                found = [i for i in found if i.get("displayName") == name]
+            start = int(q.get("startIndex", 1))
+            page = found[start - 1:start - 1 + int(q.get("count", 100))]
+            return self._send(200, {"Resources": page, "totalResults": len(found), "startIndex": start,
+                                    "itemsPerPage": len(page)})
+        oid = parts[7]
+        if oid not in items:
+            return self._missing(f"{kind} {oid} not found")
+        if method == "PATCH":
+            for op in body.get("Operations", []):
+                if op.get("op", "").lower() == "add" and op.get("path") == "members":
+                    have = {m["value"] for m in items[oid].setdefault("members", [])}
+                    items[oid]["members"] += [m for m in op.get("value", []) if m["value"] not in have]
+            return self._send(200, {})
+        if method == "DELETE":
+            items.pop(oid)
+            return self._send(200, {})
+        return self._send(200, items[oid])
+
+    # -------------------------------------------------------------- pipelines (deploy only)
+    def _pipelines(self, method, p, body):
+        st = self.state
+        parts = p.split("/")
+        if len(parts) == 4:                                            # /api/2.0/pipelines
+            if method == "POST":
+                pid = str(uuid.uuid4())
+                st.pipelines[pid] = {k: v for k, v in body.items() if k not in ("dry_run", "allow_duplicate_names")}
+                return self._send(200, {"pipeline_id": pid})
+            return self._send(200, {"statuses": [{"pipeline_id": k, "name": v.get("name")}
+                                                 for k, v in st.pipelines.items()]})
+        pid = parts[4]
+        if pid not in st.pipelines:
+            return self._missing(f"The specified pipeline {pid} was not found.")
+        if method == "GET":
+            spec = {**st.pipelines[pid], "id": pid}
+            return self._send(200, {"pipeline_id": pid, "name": spec.get("name"), "spec": spec, "state": "IDLE",
+                                    "creator_user_name": USER["userName"], "run_as_user_name": USER["userName"]})
+        if method == "PUT":
+            st.pipelines[pid] = {k: v for k, v in body.items()
+                                 if k not in ("pipeline_id", "id", "expected_last_modified", "allow_duplicate_names")}
+            return self._send(200, {})
+        if method == "DELETE":
+            st.pipelines.pop(pid)
+            return self._send(200, {})
         return self._send(200, {})
 
     # --------------------------------------------- Genie benchmarks and conversations (test double)
@@ -268,6 +418,16 @@ class _Handler(BaseHTTPRequestHandler):
                                   [{"attachment_id": uuid.uuid4().hex, "text": {"content": "I could not answer that."}}]}
             st.messages[mid] = msg
             return self._send(200, {"conversation_id": cid, "message_id": mid, "message": msg})
+        if p.endswith("/query-result") and "/attachments/" in p:
+            mid = parts[9]
+            att = next(a for a in st.messages[mid]["attachments"] if a["attachment_id"] == parts[11])
+            cols, rows = self.state.evaluator.query(att["query"]["query"]) if hasattr(self.state.evaluator, "query") \
+                else ([], [])
+            return self._send(200, {"statement_response": {
+                "statement_id": uuid.uuid4().hex, "status": {"state": "SUCCEEDED"},
+                "manifest": {"schema": {"column_count": len(cols), "columns": [{"name": c, "position": i}
+                                                                                for i, c in enumerate(cols)]}},
+                "result": {"data_array": [[None if v is None else str(v) for v in r] for r in rows]}}})
         if "/messages/" in p:
             mid = parts[-1]
             return self._send(200, st.messages[mid]) if mid in st.messages else self._missing("message not found")
@@ -280,20 +440,28 @@ class _Handler(BaseHTTPRequestHandler):
                 "num_correct": sum(1 for r in res if r["assessment"] == "GOOD") if status == "DONE" else 0,
                 "num_needs_review": sum(1 for r in res if r["assessment"] == "NEEDS_REVIEW") if status == "DONE" else 0}
 
+    def _safe(self, method):
+        try:
+            self._handle(method)
+        except Exception:                                             # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            self._send(500, {"error_code": "INTERNAL_ERROR", "message": "fake workspace error (see its stderr)"})
+
     def do_GET(self):
-        self._handle("GET")
+        self._safe("GET")
 
     def do_POST(self):
-        self._handle("POST")
+        self._safe("POST")
 
     def do_PATCH(self):
-        self._handle("PATCH")
+        self._safe("PATCH")
 
     def do_PUT(self):
-        self._handle("PUT")
+        self._safe("PUT")
 
     def do_DELETE(self):
-        self._handle("DELETE")
+        self._safe("DELETE")
 
 
 def _upgrade(serialized: str) -> str:
@@ -318,6 +486,7 @@ class FakeWorkspace:
         state.evaluator = evaluator
         handler = type("Handler", (_Handler,), {"state": state})
         server = ThreadingHTTPServer(("127.0.0.1", port or _free_port()), handler)
+        state.host = f"http://127.0.0.1:{server.server_address[1]}"
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         return cls(server, t, state)
@@ -370,6 +539,14 @@ class FreshCartEvaluator:
             if " ".join("".join(e.get("question", [])).lower().split()) == key:
                 return e
         return None
+
+    def query(self, sql):
+        """(columns, rows) of a Genie answer, run on the local warehouse."""
+        con = self._connect()
+        try:
+            return self._benchmarks.run_sql(con, sql)
+        finally:
+            con.close()
 
     def __call__(self, space, question):
         e = self._example(space, question)

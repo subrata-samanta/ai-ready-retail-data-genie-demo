@@ -1,3 +1,4 @@
 # For the scripts and tests that run in CI / on a laptop (not needed in Databricks)
 -r ../requirements.txt
 databricks-sdk>=0.145.0
+sqlglot>=25          # parses the data bundle's SQL as Databricks SQL in tests/test_data_bundle.py

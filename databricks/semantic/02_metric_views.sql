@@ -2,7 +2,7 @@
 -- Creates the Unity Catalog metric views. Requires Databricks Runtime 16.4+ (YAML spec 1.1 for
 -- synonyms, display names and formats). The local engine reads the very same YAML.
 
-CREATE OR REPLACE VIEW freshcart.semantic.sales_metrics
+CREATE OR REPLACE VIEW ${catalog}.semantic.sales_metrics
 WITH METRICS
 LANGUAGE YAML
 AS $$
@@ -11,23 +11,23 @@ comment: >-
   Governed FreshCart sales KPIs at receipt-line grain. Use for any question about sales,
   revenue, units, baskets, margin, returns, promotions or loyalty by fiscal period, store,
   region, product hierarchy, channel or loyalty tier. Amounts are USD and exclude sales tax.
-source: freshcart.gold.fct_sales_line
+source: ${catalog}.gold.fct_sales_line
 
 joins:
   - name: dt
-    source: freshcart.gold.dim_date
+    source: ${catalog}.gold.dim_date
     on: source.sales_date = dt.calendar_date
   - name: store
-    source: freshcart.gold.dim_store
+    source: ${catalog}.gold.dim_store
     on: source.store_id = store.store_id
   - name: product
-    source: freshcart.gold.dim_product
+    source: ${catalog}.gold.dim_product
     on: source.product_id = product.product_id
   - name: customer
-    source: freshcart.gold.dim_customer
+    source: ${catalog}.gold.dim_customer
     on: source.customer_id = customer.customer_id
   - name: promo
-    source: freshcart.gold.dim_promotion
+    source: ${catalog}.gold.dim_promotion
     on: source.promotion_id = promo.promotion_id
 
 fields:
@@ -233,7 +233,7 @@ measures:
     synonyms: [store count, number of stores]
 $$;
 
-CREATE OR REPLACE VIEW freshcart.semantic.inventory_metrics
+CREATE OR REPLACE VIEW ${catalog}.semantic.inventory_metrics
 WITH METRICS
 LANGUAGE YAML
 AS $$
@@ -242,17 +242,17 @@ comment: >-
   FreshCart store stock position from nightly snapshots (one row per store, product and day).
   Use for stock on hand, stock value and out-of-stock questions. Stock levels add up across
   stores and products but not across days.
-source: freshcart.gold.fct_inventory_daily
+source: ${catalog}.gold.fct_inventory_daily
 
 joins:
   - name: dt
-    source: freshcart.gold.dim_date
+    source: ${catalog}.gold.dim_date
     on: source.snapshot_date = dt.calendar_date
   - name: store
-    source: freshcart.gold.dim_store
+    source: ${catalog}.gold.dim_store
     on: source.store_id = store.store_id
   - name: product
-    source: freshcart.gold.dim_product
+    source: ${catalog}.gold.dim_product
     on: source.product_id = product.product_id
 
 fields:
@@ -334,4 +334,4 @@ measures:
     synonyms: [stockout days, OOS days]
 $$;
 
-GRANT SELECT ON SCHEMA freshcart.semantic TO `fc_genie_users`;
+GRANT SELECT ON SCHEMA ${catalog}.semantic TO `freshcart-business-users`;

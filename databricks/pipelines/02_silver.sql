@@ -6,17 +6,19 @@
 -- Hard rules use expectations; the quarantine table keeps the rejected rows with a reason.
 -- Materialized views are used so window-based deduplication is allowed; serverless
 -- pipelines refresh them incrementally where possible.
+-- ${catalog} and ${as_of_date} are pipeline parameters set by the bundle. ${as_of_date} is the day the
+-- data treats as today (the demo data ends the day before 2026-09-27); 'today' means current_date().
 -- =====================================================================================
 
 -- 01 · fiscal_calendar ------------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.fiscal_calendar (
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.fiscal_calendar (
   CONSTRAINT valid_date EXPECT (calendar_date IS NOT NULL) ON VIOLATION FAIL UPDATE
 )
 COMMENT 'Finance 4-5-4 fiscal calendar, typed. One row per calendar day.'
 AS
 WITH latest AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY CAL_DT ORDER BY _ingested_at DESC) AS rn
-  FROM freshcart.bronze.fiscal_calendar_raw
+  FROM ${catalog}.bronze.fiscal_calendar_raw
 ),
 typed AS (
   SELECT try_to_date(CAL_DT, 'dd/MM/yyyy')        AS calendar_date,
@@ -34,17 +36,17 @@ SELECT *,
 FROM typed;
 
 -- 02 · fx_rate_daily --------------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.fx_rate_daily
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.fx_rate_daily
 COMMENT 'Daily CAD and USD to USD rates. Weekends and holidays carry the last published rate.'
 AS
 WITH published AS (
   SELECT try_to_date(RATE_DT, 'yyyy-MM-dd') AS rate_date, upper(FROM_CCY) AS from_currency,
          CAST(RATE AS DOUBLE) AS rate
-  FROM freshcart.bronze.fx_rate_raw WHERE upper(TO_CCY) = 'USD'
+  FROM ${catalog}.bronze.fx_rate_raw WHERE upper(TO_CCY) = 'USD'
 ),
 days AS (
-  SELECT calendar_date FROM freshcart.silver.fiscal_calendar
-  WHERE calendar_date BETWEEN (SELECT MIN(rate_date) FROM published) AND current_date()
+  SELECT calendar_date FROM ${catalog}.silver.fiscal_calendar
+  WHERE calendar_date BETWEEN (SELECT MIN(rate_date) FROM published) AND COALESCE(try_to_date('${as_of_date}'), current_date())
 )
 SELECT d.calendar_date AS rate_date,
        'CAD' AS from_currency,
@@ -56,7 +58,7 @@ UNION ALL
 SELECT calendar_date, 'USD', 1.0, 0 FROM days;
 
 -- 03 · store_history (SCD2 from snapshots) ----------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.store_history
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.store_history
 COMMENT 'Store master history, one row per store per version of its attributes (SCD type 2).'
 AS
 WITH snap AS (
@@ -68,10 +70,10 @@ WITH snap AS (
          try_to_date(NULLIF(s.CLOSE_DT, ''), 'MM/dd/yyyy')        AS close_date,
          CAST(s.SQFT AS INT)                                      AS selling_area_sqft,
          try_to_date(substr(s._source_file, -12, 8), 'yyyyMMdd')  AS snapshot_date
-  FROM freshcart.bronze.store_master_raw s
-  LEFT JOIN freshcart.bronze.ref_store_format_raw   f  ON f.FMT_CD = s.FMT_CD
-  LEFT JOIN freshcart.bronze.ref_region_raw         r  ON r.RGN_CD = s.RGN_CD
-  LEFT JOIN freshcart.bronze.ref_state_province_raw st ON st.ST_CD = s.ST_CD
+  FROM ${catalog}.bronze.store_master_raw s
+  LEFT JOIN ${catalog}.bronze.ref_store_format_raw   f  ON f.FMT_CD = s.FMT_CD
+  LEFT JOIN ${catalog}.bronze.ref_region_raw         r  ON r.RGN_CD = s.RGN_CD
+  LEFT JOIN ${catalog}.bronze.ref_state_province_raw st ON st.ST_CD = s.ST_CD
 ),
 changes AS (
   SELECT *, sha2(concat_ws('|', store_name, store_format, city, state_province, region,
@@ -95,7 +97,7 @@ SELECT store_id, store_name, store_format, city, state_province, country, region
 FROM ranged;
 
 -- 04 · product and product_cost ---------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.product (
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.product (
   CONSTRAINT has_hierarchy EXPECT (department IS NOT NULL)
 )
 COMMENT 'One row per SKU: US01 record preferred, CA01 for Canada-only items. Hierarchy decoded.'
@@ -104,7 +106,7 @@ WITH ranked AS (
   SELECT p.*, TRIM(LEADING '0' FROM p.MATNR) AS product_id,
          ROW_NUMBER() OVER (PARTITION BY TRIM(LEADING '0' FROM p.MATNR)
                             ORDER BY CASE p.VKORG WHEN 'US01' THEN 1 ELSE 2 END, p._ingested_at DESC) AS rn
-  FROM freshcart.bronze.product_master_raw p
+  FROM ${catalog}.bronze.product_master_raw p
 )
 SELECT r.product_id,
        CASE WHEN r.VKORG = 'US01' THEN r.MAKTX ELSE initcap(r.MAKTX) END AS product_name,
@@ -112,10 +114,10 @@ SELECT r.product_id,
        CASE r.MEINS WHEN 'EA' THEN 'Each' WHEN 'KG' THEN 'Kilogram' ELSE r.MEINS END AS unit_of_measure,
        CASE r.STATUS WHEN 'A' THEN 'Active' WHEN 'D' THEN 'Discontinued' ELSE 'Unknown' END AS product_status,
        r.MATKL AS material_group_code, r.VKORG AS source_sales_org
-FROM ranked r LEFT JOIN freshcart.bronze.merch_hierarchy_raw h ON h.MATKL = r.MATKL
+FROM ranked r LEFT JOIN ${catalog}.bronze.merch_hierarchy_raw h ON h.MATKL = r.MATKL
 WHERE r.rn = 1;
 
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.product_cost
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.product_cost
 COMMENT 'Standard cost per product with validity ranges.'
 AS
 SELECT TRIM(LEADING '0' FROM MATNR) AS product_id,
@@ -123,10 +125,10 @@ SELECT TRIM(LEADING '0' FROM MATNR) AS product_id,
        COALESCE(date_sub(LEAD(try_to_date(COST_EFF_DT, 'yyyyMMdd'))
                   OVER (PARTITION BY TRIM(LEADING '0' FROM MATNR) ORDER BY COST_EFF_DT), 1), DATE'9999-12-31') AS valid_to,
        CAST(STD_COST AS DECIMAL(18,4)) AS unit_cost_usd
-FROM freshcart.bronze.cost_history_raw;
+FROM ${catalog}.bronze.cost_history_raw;
 
 -- 05 · promotion ------------------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.promotion
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.promotion
 COMMENT 'Promotions with decoded mechanics.'
 AS
 SELECT PROMO_CD AS promotion_id, PROMO_DESC AS promotion_name,
@@ -135,15 +137,15 @@ SELECT PROMO_CD AS promotion_id, PROMO_DESC AS promotion_name,
        try_to_date(START_DT, 'yyyy-MM-dd') AS start_date,
        try_to_date(END_DT, 'yyyy-MM-dd')   AS end_date,
        CAST(NULLIF(DISC_PCT, '') AS DOUBLE) AS discount_pct
-FROM freshcart.bronze.promo_calendar_raw;
+FROM ${catalog}.bronze.promo_calendar_raw;
 
 -- 06 · loyalty_member (pseudonymous) and loyalty_member_restricted (personal data) -------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.loyalty_member
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.loyalty_member
 COMMENT 'Loyalty members without personal data: pseudonymous id, tier, age band, home store.'
 AS
 WITH latest AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY CARD_NBR ORDER BY _source_file DESC) AS rn
-  FROM freshcart.bronze.crm_member_raw
+  FROM ${catalog}.bronze.crm_member_raw
 )
 SELECT sha2(CARD_NBR, 256) AS customer_id,
        CASE TIER WHEN 'G' THEN 'Gold' WHEN 'S' THEN 'Silver' WHEN 'B' THEN 'Bronze' ELSE 'Unknown' END AS loyalty_tier,
@@ -151,20 +153,27 @@ SELECT sha2(CARD_NBR, 256) AS customer_id,
        CASE WHEN age < 18 THEN 'Under 18' WHEN age < 25 THEN '18-24' WHEN age < 35 THEN '25-34'
             WHEN age < 45 THEN '35-44' WHEN age < 55 THEN '45-54' WHEN age < 65 THEN '55-64' ELSE '65+' END AS age_band,
        TRIM(LEADING '0' FROM HOME_STR) AS home_store_id
-FROM (SELECT *, floor(months_between(current_date(), try_to_date(DOB, 'yyyy-MM-dd')) / 12) AS age
+FROM (SELECT *, floor(months_between(COALESCE(try_to_date('${as_of_date}'), current_date()), try_to_date(DOB, 'yyyy-MM-dd')) / 12) AS age
       FROM latest WHERE rn = 1);
 
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.loyalty_member_restricted
-COMMENT 'RESTRICTED: loyalty personal data. Column masks applied in governance; never used in gold.'
+-- Column masks on pipeline tables are declared here (ALTER TABLE cannot change a pipeline's table).
+-- The mask function is created by governance/00_functions.sql, which runs before the pipeline.
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.loyalty_member_restricted (
+  customer_id   STRING,
+  card_number   STRING MASK ${catalog}.governance.mask_pii,
+  email         STRING MASK ${catalog}.governance.mask_pii,
+  date_of_birth DATE
+)
+COMMENT 'RESTRICTED: loyalty personal data, masked for everyone outside fc_crm_admins. Never used in gold.'
 AS
 SELECT sha2(CARD_NBR, 256) AS customer_id, CARD_NBR AS card_number, EMAIL AS email,
        try_to_date(DOB, 'yyyy-MM-dd') AS date_of_birth
 FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY CARD_NBR ORDER BY _source_file DESC) AS rn
-      FROM freshcart.bronze.crm_member_raw)
+      FROM ${catalog}.bronze.crm_member_raw)
 WHERE rn = 1;
 
 -- 07 · pos_sales_line (+ quarantine) ----------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver._pos_checked
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver._pos_checked
 COMMENT 'Internal: typed, deduplicated POS lines with a failure_reason for rows that break a rule.'
 AS
 WITH typed AS (
@@ -186,7 +195,7 @@ WITH typed AS (
          TRX_DT AS raw_trx_dt, STR_NBR AS raw_str_nbr, QTY AS raw_qty, _source_file, _ingested_at,
          ROW_NUMBER() OVER (PARTITION BY STR_NBR, REG_NBR, TRX_ID, LN_NBR, TRX_DT
                             ORDER BY _source_file, _ingested_at) AS copy_no
-  FROM freshcart.bronze.pos_tlog_raw
+  FROM ${catalog}.bronze.pos_tlog_raw
 )
 SELECT t.*, fx.rate_to_usd AS fx_rate_to_usd,
        CASE WHEN t.store_id IS NULL     THEN 'missing store number'
@@ -196,16 +205,16 @@ SELECT t.*, fx.rate_to_usd AS fx_rate_to_usd,
             WHEN abs(t.qty_abs) > 500   THEN concat('implausible quantity: ', t.raw_qty)
             WHEN fx.rate_to_usd IS NULL THEN concat('no FX rate for ', t.currency_code) END AS failure_reason
 FROM typed t
-LEFT JOIN freshcart.silver.fx_rate_daily fx ON fx.rate_date = t.sales_date AND fx.from_currency = t.currency_code
+LEFT JOIN ${catalog}.silver.fx_rate_daily fx ON fx.rate_date = t.sales_date AND fx.from_currency = t.currency_code
 WHERE t.copy_no = 1;
 
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.quarantine_pos_sales_line
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.quarantine_pos_sales_line
 COMMENT 'POS rows rejected by a hard rule, with the reason. Review and fix at source.'
 AS SELECT failure_reason, raw_str_nbr, transaction_id, line_number, raw_trx_dt, product_id, raw_qty,
           _source_file, _ingested_at
-FROM freshcart.silver._pos_checked WHERE failure_reason IS NOT NULL;
+FROM ${catalog}.silver._pos_checked WHERE failure_reason IS NOT NULL;
 
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.pos_sales_line (
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.pos_sales_line (
   CONSTRAINT passes_rules EXPECT (failure_reason IS NULL) ON VIOLATION DROP ROW
 )
 COMMENT 'Cleansed POS lines incl. voids and training lines (flagged). Amounts local and USD, returns negative.'
@@ -222,10 +231,10 @@ SELECT concat('POS-', store_id, '-', transaction_id, '-', line_number) AS sales_
        round(sign * gross_abs * fx_rate_to_usd, 2)    AS gross_sales_amount_usd,
        round(sign * discount_abs * fx_rate_to_usd, 2) AS discount_amount_usd,
        failure_reason, _source_file, _ingested_at
-FROM freshcart.silver._pos_checked;
+FROM ${catalog}.silver._pos_checked;
 
 -- 08 · online_sales_line ----------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.online_sales_line
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.online_sales_line
 COMMENT 'Online order lines flattened from JSON; business date from the local timestamp.'
 AS
 WITH orders AS (
@@ -238,7 +247,7 @@ WITH orders AS (
          explode(from_json(value:lines,
            'ARRAY<STRUCT<lineNo: INT, sku: STRING, qty: DOUBLE, unitPrice: DOUBLE, lineTotal: DOUBLE, discount: DOUBLE, promoCode: STRING>>')) AS l,
          _source_file, _ingested_at
-  FROM freshcart.bronze.ecom_order_raw
+  FROM ${catalog}.bronze.ecom_order_raw
 )
 SELECT concat('WEB-', o.order_id, '-', o.l.lineNo) AS sales_line_id,
        o.order_id AS transaction_id, o.l.lineNo AS line_number, CAST(NULL AS STRING) AS register_number,
@@ -259,11 +268,11 @@ SELECT concat('WEB-', o.order_id, '-', o.l.lineNo) AS sales_line_id,
        round(o.l.discount  * fx.rate_to_usd, 2) AS discount_amount_usd,
        CAST(NULL AS STRING) AS failure_reason, o._source_file, o._ingested_at
 FROM orders o
-JOIN freshcart.silver.fx_rate_daily fx
+JOIN ${catalog}.silver.fx_rate_daily fx
   ON fx.rate_date = CAST(substr(o.order_ts, 1, 10) AS DATE) AND fx.from_currency = o.currency_code;
 
 -- 09 · inventory_daily ------------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW freshcart.silver.inventory_daily
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.silver.inventory_daily
 COMMENT 'Daily stock per store and product. Negative readings clamped to 0 and flagged.'
 AS
 SELECT snapshot_date, store_id, product_id,
@@ -275,6 +284,6 @@ FROM (
          CAST(OH_QTY AS DECIMAL(12,3)) AS raw_on_hand, CAST(ON_ORD_QTY AS DECIMAL(12,3)) AS on_order_units,
          _ingested_at,
          ROW_NUMBER() OVER (PARTITION BY SNAP_DT, STR_NBR, ITM_ID ORDER BY _ingested_at DESC) AS rn
-  FROM freshcart.bronze.inventory_raw
+  FROM ${catalog}.bronze.inventory_raw
 )
 WHERE rn = 1 AND snapshot_date IS NOT NULL;

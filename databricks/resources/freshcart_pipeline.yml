@@ -1,0 +1,20 @@
+# Bronze and silver as one Lakeflow Declarative Pipeline on serverless compute.
+# The SQL files publish to ${catalog}.bronze and ${catalog}.silver (fully qualified names); the
+# configuration below is how the pipeline's SQL receives ${catalog} and ${as_of_date}.
+resources:
+  pipelines:
+    freshcart_pipeline:
+      name: FreshCart bronze and silver${var.title_suffix}
+      catalog: ${var.catalog}
+      schema: bronze
+      serverless: true
+      channel: CURRENT
+      continuous: false
+      configuration:
+        catalog: ${var.catalog}
+        as_of_date: ${var.as_of_date}
+      libraries:
+        - file:
+            path: ../pipelines/01_bronze.sql
+        - file:
+            path: ../pipelines/02_silver.sql

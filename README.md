@@ -33,7 +33,7 @@ git clone <this repo>
 cd ai-ready-retail-data-genie-demo
 pip install -r requirements.txt        # only PyYAML
 python run_demo.py                     # pipeline + checks + benchmarks + docs, about 20 seconds
-python tests/run_tests.py              # 13 tests, including a raw-to-gold reconciliation
+python tests/run_tests.py              # all tests, including a raw-to-gold reconciliation
 ```
 
 Want to poke at the data yourself? The warehouse is three SQLite files in `warehouse/`
@@ -129,6 +129,11 @@ It teaches the theory first (grain, keys, medallion layers, star schemas, SQL wi
 bronze, silver and gold table from the raw files, one step at a time, explaining each transformation and why it is needed.
 Run it with `pip install -r notebooks/requirements.txt` and `jupyter notebook notebooks/`.
 
+Running it on Databricks from an empty workspace? Add this repository as a Git folder and run
+[`notebooks/FreshCart_End_to_End_on_Databricks.py`](notebooks/FreshCart_End_to_End_on_Databricks.py) on serverless
+compute: catalog, schemas, raw files, the pipeline and refresh job ([`databricks/`](databricks/), a bundle), the Genie
+space, its benchmark gate, version history and promotion to qa and prod, one step at a time.
+
 Taking the Genie space to production? It is delivered as a Declarative Automation Bundle in
 [`genie_bundle/`](genie_bundle/) (targets sandbox, dev, qa, prod), with version history for every change made in the dev
 space, rollback, benchmark gates, approvals and drift protection in [`.github/workflows/genie-*.yml`](.github/workflows/).
@@ -145,10 +150,10 @@ pipeline/silver/     one SQL file per silver table, steps numbered in comments
 pipeline/gold/       one SQL file per gold table, steps numbered in comments
 contracts/gold/      YAML contract per gold table: columns, types, comments, keys, tags
 semantic/            metric-view YAML (used locally AND on Databricks) + like-for-like function
-databricks/          the Databricks version: setup, Lakeflow pipeline, gold MERGEs, governance, metric views
-tests/               13 tests incl. raw-to-gold reconciliation
+databricks/          the Databricks version as a bundle: Lakeflow pipeline, refresh job (gold, governance, metric views)
+tests/               pipeline, bundles and notebook tests, incl. raw-to-gold reconciliation
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
-notebooks/           walkthrough notebooks: every table step by step; Genie version control and CI/CD
+notebooks/           every table step by step; Genie version control and CI/CD; end to end on Databricks
 genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
 ```
 
@@ -165,6 +170,7 @@ genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, 
 ## Disclaimer
 
 FreshCart, its stores, products, customers and numbers are fictional. The Databricks SQL in
-`databricks/` follows the Databricks documentation as of September 2026 but is not executed by
-this repo's tests; the local SQLite version is the tested reference. Review and test before
-production use.
+`databricks/` follows the Databricks documentation as of September 2026. This repo's tests check it
+offline (parsing, placeholders, column matching, a full run of the Databricks notebook against a
+stand-in workspace) but do not execute it on Databricks; the local SQLite version is the tested
+reference. Review and test before production use.

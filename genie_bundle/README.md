@@ -1,7 +1,8 @@
 # freshcart-genie bundle
 
 The FreshCart Genie space, its quality-gate job and all environments (sandbox, dev, qa, prod), as one
-Declarative Automation Bundle. The full guide is
+Declarative Automation Bundle. It reads the tables built by the data bundle in [`../databricks`](../databricks/),
+so deploy that one first. The full guide is
 [`notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb`](../notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb).
 
 ```bash
