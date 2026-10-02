@@ -1,21 +1,21 @@
-# Genie space: capture every change made in the dev UI
+# Genie space bundle: version every change made in the dev Genie UI
 #
-# Every hour (and on demand):
-#   1. snapshot  - if the dev space changed, store a new version in dev's history on the UC volume
-#                  (this is the undo history for dev: `rollback --env dev --to <record id>`)
-#   2. pull      - export the dev space into the git file
-#   3. if the file changed, open (or update) the pull request "Genie: sync changes made in dev",
-#      which goes through review, genie-ci and then the release pipeline like any other change.
+# Hourly, on demand, and at the start of every release:
+#   1. scripts/sync_from_workspace.py -t dev     (databricks bundle summary + bundle generate genie-space)
+#      exports the dev space and writes resources/freshcart_assistant.space.yml with ${var.catalog}
+#   2. if it changed: commit it on the branch genie/dev-sync, tag the commit
+#      genie-dev-snapshot-<UTC time> (the version history of dev: every snapshot stays reachable and can
+#      be restored with genie-rollback, environment dev, to = that tag), and open/update a pull request.
 #
-# Note: pull requests opened with the default GITHUB_TOKEN do not trigger other workflows. To have
-# genie-ci run on this PR automatically, use a GitHub App token or a fine-grained PAT stored as the
-# secret GENIE_SYNC_TOKEN (used below when present).
+# Note: pull requests created with the default GITHUB_TOKEN don't trigger other workflows. To run
+# genie-ci on the sync PR automatically, store a GitHub App token or fine-grained PAT as GENIE_SYNC_TOKEN.
 name: genie-dev-sync
 
 on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: genie-dev-sync
@@ -34,43 +34,41 @@ jobs:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_AUTH_TYPE: github-oidc
-      GENIE_DEV_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
-      GENIE_DEV_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
       GH_TOKEN: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r deploy/genie/requirements.txt
+      - uses: databricks/setup-cli@main
+        with:
+          version: "1.18.0"
+      - run: pip install -r genie_bundle/requirements-dev.txt
       - id: cfg
         run: |
-          if [ -z "$DATABRICKS_HOST" ]; then
-            echo "::notice::dev is not configured (no DATABRICKS_HOST variable); nothing to sync"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Snapshot dev into its version history
+          if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); nothing to sync"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Export the dev space into the bundle
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd snapshot --env dev
-      - name: Pull dev into git
-        if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd pull --env dev
-      - name: Open or update the sync pull request
+        run: python genie_bundle/scripts/sync_from_workspace.py -t dev
+      - name: Commit, tag and open the sync pull request
         if: steps.cfg.outputs.ready == 'true'
         run: |
-          FILE=genie/space/freshcart_assistant.geniespace.json
+          FILE=genie_bundle/resources/freshcart_assistant.space.yml
           if git diff --quiet -- "$FILE"; then echo "dev matches main"; exit 0; fi
-          python -m genie_cicd validate || echo "::warning::the dev space has validation errors; see the PR checks"
-          BRANCH=genie/dev-sync
+          python genie_bundle/scripts/validate_space.py || echo "::warning::the dev space has validation errors; see the PR checks"
+          STAMP=$(date -u +%Y%m%dT%H%MZ)
           git config user.name "genie-dev-sync"
           git config user.email "genie-dev-sync@users.noreply.github.com"
-          git checkout -B "$BRANCH"
+          git checkout -B genie/dev-sync
           git add "$FILE"
-          git commit -m "Genie: sync changes made in the dev space"
-          git push --force origin "$BRANCH"
-          BODY="Changes made in the dev Genie space UI, exported by genie-dev-sync. Review the diff, then merge to release to qa and prod."
-          gh pr view "$BRANCH" >/dev/null 2>&1 || gh pr create --base main --head "$BRANCH" --title "Genie: sync changes made in dev" --body "$BODY"
+          git commit -m "Genie: changes made in the dev space (snapshot $STAMP)"
+          git tag "genie-dev-snapshot-$STAMP"
+          git push --force origin genie/dev-sync
+          git push origin "genie-dev-snapshot-$STAMP"
+          gh pr view genie/dev-sync >/dev/null 2>&1 || gh pr create --base main --head genie/dev-sync \
+            --title "Genie: sync changes made in dev" \
+            --body "Changes made in the dev Genie space UI, exported by genie-dev-sync. Review the change list in the checks, then merge to release to qa and prod."
+          echo "Snapshot genie-dev-snapshot-$STAMP" >> "$GITHUB_STEP_SUMMARY"

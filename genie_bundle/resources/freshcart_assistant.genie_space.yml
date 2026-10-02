@@ -1,0 +1,16 @@
+# The Genie space (a Genie Agent in the UI). Edit these settings by hand.
+# Its content lives in freshcart_assistant.space.yml (variable freshcart_assistant_space).
+resources:
+  genie_spaces:
+    freshcart_assistant:
+      title: FreshCart Sales & Stock Assistant${var.title_suffix}
+      description: >-
+        Ask about sales, margin, baskets, promotions, loyalty and stock across FreshCart stores
+        and online. Figures are USD, exclude tax and use the FreshCart fiscal calendar.
+        You only see regions you have access to; if a question returns no rows, you may not
+        have access to that region. Not covered: labour, supplier deliveries, individual customers.
+      warehouse_id: ${var.warehouse_id}
+      serialized_space: ${var.freshcart_assistant_space}
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.business_users_group}

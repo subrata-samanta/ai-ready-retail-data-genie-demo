@@ -1,0 +1,47 @@
+# Quality gates for the Genie space, deployed with the bundle and run with `databricks bundle run`:
+#   databricks bundle run genie_quality_gate -t qa                        benchmark gate (fails the run if it fails)
+#   databricks bundle run genie_quality_gate -t prod --params mode=smoke  one question must return SQL
+# In prod the job is also scheduled nightly (see databricks.yml) to catch regressions on live data.
+resources:
+  jobs:
+    genie_quality_gate:
+      name: FreshCart Genie quality gate${var.title_suffix}
+      description: Runs the Genie space's benchmarks (mode=gate) or one smoke-test question (mode=smoke).
+      max_concurrent_runs: 1
+      parameters:
+        - name: space_id
+          default: ${resources.genie_spaces.freshcart_assistant.id}
+        - name: mode
+          default: gate
+        - name: min_accuracy
+          default: ${var.gate_min_accuracy}
+        - name: max_bad
+          default: ${var.gate_max_bad}
+        - name: min_graded
+          default: ${var.gate_min_graded}
+        - name: smoke_question
+          default: ${var.smoke_question}
+      tasks:
+        - task_key: genie_quality_gate
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/genie_quality_gate.py
+            parameters:
+              - --space-id
+              - "{{job.parameters.space_id}}"
+              - --mode
+              - "{{job.parameters.mode}}"
+              - --min-accuracy
+              - "{{job.parameters.min_accuracy}}"
+              - --max-bad
+              - "{{job.parameters.max_bad}}"
+              - --min-graded
+              - "{{job.parameters.min_graded}}"
+              - --smoke-question
+              - "{{job.parameters.smoke_question}}"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - databricks-sdk>=0.145.0

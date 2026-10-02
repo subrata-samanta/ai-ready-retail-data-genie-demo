@@ -1,77 +1,80 @@
-# Genie space: release pipeline  main -> qa (benchmark gate) -> prod (manual approval)
+# Genie space bundle: release  main -> dev -> qa (benchmark gate) -> prod (approval)
 #
-# Build once, promote the same artifact: the exact file that passed QA is the file that reaches prod.
+# Every environment is deployed with `databricks bundle deploy -t <target>` from the SAME commit.
+# Before each deploy: `bundle plan -o json` -> check_drift.py (refuses to overwrite UI edits in qa/prod,
+# refuses to delete or recreate the space, saves the live space as a backup artifact).
+# Gates run as the bundle's own job: `databricks bundle run genie_quality_gate`.
 #
-# One-time setup (see notebooks/Genie_Version_Control_and_CICD.ipynb, part 7):
-#   GitHub environments `qa` and `prod`; on `prod` add required reviewers.
-#   Variables in each environment:
-#     DATABRICKS_HOST          workspace URL of that environment
-#     DATABRICKS_CLIENT_ID     application id of the environment's deployment service principal
-#     GENIE_WAREHOUSE_ID       SQL warehouse the space uses
-#     GENIE_SPACE_ID           (optional) id of the existing space; found by title when empty
-#   Authentication is GitHub OIDC -> Databricks workload identity federation: no secrets are stored.
-#   (Alternative: OAuth M2M with a DATABRICKS_CLIENT_SECRET secret and DATABRICKS_AUTH_TYPE=oauth-m2m.)
-#
-# While the variables are not set, the deploy steps are skipped with a notice, so the workflow is
-# safe to have in a repository that is not connected to Databricks yet.
+# One-time setup (notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb, part 7):
+#   GitHub environments dev, qa, prod (prod: required reviewers, deployment branch main), each with
+#   variables DATABRICKS_HOST and DATABRICKS_CLIENT_ID (its deployment service principal).
+#   Auth is GitHub OIDC -> Databricks workload identity federation: no secrets stored.
+# Until DATABRICKS_HOST is set for an environment, its steps are skipped with a notice.
 name: genie-release
 
 on:
   push:
     branches: [main]
     paths:
-      - "genie/space/**"
-      - "deploy/genie/environments.yml"
+      - "genie_bundle/**"
   workflow_dispatch:
     inputs:
       allow_drift:
-        description: Overwrite edits made in the qa/prod UI since the last release (a backup is kept)
+        description: Overwrite edits made in the qa/prod UI since the last deploy (a backup is kept)
+        type: boolean
+        default: false
+      allow_destroy:
+        description: Allow a plan that deletes or recreates the Genie space (its conversations are lost)
         type: boolean
         default: false
 
 concurrency:
-  group: genie-release                         # one release at a time; never cancel a deploy halfway
+  group: genie-release                         # shared with genie-rollback: one deployment at a time
   cancel-in-progress: false
 
 permissions:
-  contents: write                              # push the release tag
+  contents: write                              # push release tags
   id-token: write                              # GitHub OIDC token for Databricks
+  pull-requests: write                         # the dev snapshot may open a sync PR
+
+env:
+  DATABRICKS_CLI_VERSION: "1.18.0"
+  DATABRICKS_AUTH_TYPE: github-oidc
+  DRIFT_FLAGS: ${{ inputs.allow_drift && '--allow-drift' || '' }} ${{ inputs.allow_destroy && '--allow-destroy' || '' }}
 
 jobs:
-  build:
+  # 1. Capture any UI edits in dev into git before dev is redeployed (nothing is ever lost).
+  dev-snapshot:
+    uses: ./.github/workflows/genie-dev-sync.yml
+    secrets: inherit
+
+  # 2. Bring dev in line with main.
+  dev:
+    needs: dev-snapshot
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
+    environment: dev
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+    defaults:
+      run:
+        working-directory: genie_bundle
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: databricks/setup-cli@main
         with:
-          python-version: "3.11"
-      - run: pip install -r deploy/genie/requirements.txt
-      - name: Validate
-        run: python -m genie_cicd validate --sql
-      - id: version
-        name: Version = UTC date + commit
-        run: echo "version=$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - name: Package the release artifact
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - id: cfg
         run: |
-          mkdir -p dist
-          cp genie/space/freshcart_assistant.geniespace.json dist/
-          python - <<'EOF'
-          import json
-          from genie_cicd import spec as S
-          s = S.load("dist/freshcart_assistant.geniespace.json")
-          json.dump({"version": "${{ steps.version.outputs.version }}", "git_sha": "${{ github.sha }}",
-                     "content_hash": S.content_hash(s), "summary": S.summary(s)}, open("dist/manifest.json", "w"), indent=1)
-          EOF
-          cat dist/manifest.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: genie-space
-          path: dist/
+          if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle validate -t dev
+      - if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle deploy -t dev
 
+  # 3. QA: plan, drift gate, deploy, benchmark gate, smoke test.
   qa:
-    needs: build
+    needs: dev
     runs-on: ubuntu-latest
     environment: qa
     outputs:
@@ -79,79 +82,100 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_AUTH_TYPE: github-oidc
-      GENIE_QA_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
-      GENIE_QA_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
-      VERSION: ${{ needs.build.outputs.version }}
-      DRIFT_FLAG: ${{ inputs.allow_drift && '--allow-drift' || '' }}
+    defaults:
+      run:
+        working-directory: genie_bundle
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r deploy/genie/requirements.txt
-      - uses: actions/download-artifact@v4
+      - uses: databricks/setup-cli@main
         with:
-          name: genie-space
-          path: dist/
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - run: pip install -r requirements-dev.txt
       - id: cfg
-        name: Is the qa environment connected to Databricks?
         run: |
-          if [ -z "$DATABRICKS_HOST" ]; then
-            echo "::notice::qa is not configured (no DATABRICKS_HOST variable); skipping the deployment"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Plan
+          if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::qa is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle validate -t qa
+      - name: Plan, drift gate and backup of the live space
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd plan --env qa --file dist/freshcart_assistant.geniespace.json
-      - name: Deploy to qa
+        run: |
+          databricks bundle plan -t qa
+          databricks bundle plan -t qa -o json > plan.qa.json
+          python scripts/check_drift.py plan.qa.json -t qa --backup-dir backup $DRIFT_FLAGS
+      - if: steps.cfg.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: genie-qa-pre-deploy-${{ github.run_id }}
+          path: |
+            genie_bundle/plan.qa.json
+            genie_bundle/backup/
+          retention-days: 90
+      - name: Deploy
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd deploy --env qa --file dist/freshcart_assistant.geniespace.json --version "$VERSION" --git-sha "$GITHUB_SHA" $DRIFT_FLAG
+        run: databricks bundle deploy -t qa
       - id: gate
-        name: Benchmark gate
+        name: Benchmark gate (bundle job)
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd gate --env qa
-      - name: Smoke test
+        run: databricks bundle run genie_quality_gate -t qa
+      - name: Smoke test (bundle job)
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m genie_cicd smoke --env qa
+        run: databricks bundle run genie_quality_gate -t qa --params mode=smoke
 
+  # 4. Prod: same commit, after approval (required reviewers on the prod environment).
   prod:
-    needs: [build, qa]
-    if: needs.qa.outputs.gated == 'true'      # never reaches prod without a passed qa gate
+    needs: qa
+    if: needs.qa.outputs.gated == 'true'       # never without a passed qa gate
     runs-on: ubuntu-latest
-    environment: prod                          # required reviewers approve here
+    environment: prod
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_AUTH_TYPE: github-oidc
-      GENIE_PROD_WAREHOUSE_ID: ${{ vars.GENIE_WAREHOUSE_ID }}
-      GENIE_PROD_SPACE_ID: ${{ vars.GENIE_SPACE_ID }}
-      VERSION: ${{ needs.build.outputs.version }}
-      DRIFT_FLAG: ${{ inputs.allow_drift && '--allow-drift' || '' }}
+    defaults:
+      run:
+        working-directory: genie_bundle
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # release tags, for the automatic rollback
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r deploy/genie/requirements.txt
-      - uses: actions/download-artifact@v4
+      - uses: databricks/setup-cli@main
         with:
-          name: genie-space
-          path: dist/
-      - name: Plan (shows drift if someone edited prod in the UI)
-        run: python -m genie_cicd plan --env prod --file dist/freshcart_assistant.geniespace.json
-      - name: Deploy to prod
-        run: python -m genie_cicd deploy --env prod --file dist/freshcart_assistant.geniespace.json --version "$VERSION" --git-sha "$GITHUB_SHA" $DRIFT_FLAG
-      - name: Smoke test (rolls back automatically if it fails)
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - run: pip install -r requirements-dev.txt
+      - run: databricks bundle validate -t prod
+      - name: Plan, drift gate and backup of the live space
         run: |
-          if ! python -m genie_cicd smoke --env prod; then
-            echo "::error::smoke test failed on prod; rolling back to the previous release"
-            python -m genie_cicd rollback --env prod --to previous
+          databricks bundle plan -t prod
+          databricks bundle plan -t prod -o json > plan.prod.json
+          python scripts/check_drift.py plan.prod.json -t prod --backup-dir backup $DRIFT_FLAGS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: genie-prod-pre-deploy-${{ github.run_id }}
+          path: |
+            genie_bundle/plan.prod.json
+            genie_bundle/backup/
+          retention-days: 400
+      - name: Deploy
+        run: databricks bundle deploy -t prod
+      - name: Smoke test (rolls the space back to the previous release if it fails)
+        run: |
+          if ! databricks bundle run genie_quality_gate -t prod --params mode=smoke; then
+            PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)
+            echo "::error::smoke test failed on prod; restoring the space from ${PREVIOUS:-nothing}"
+            if [ -n "$PREVIOUS" ]; then
+              git checkout "$PREVIOUS" -- resources/freshcart_assistant.space.yml
+              databricks bundle deploy -t prod
+            fi
             exit 1
           fi
       - name: Tag the release
         run: |
-          git tag "genie-prod-$VERSION" "$GITHUB_SHA"
-          git push origin "genie-prod-$VERSION"
+          TAG="genie-prod-$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          echo "Released $TAG" >> "$GITHUB_STEP_SUMMARY"

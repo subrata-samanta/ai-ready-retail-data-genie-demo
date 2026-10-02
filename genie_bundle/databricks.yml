@@ -1,0 +1,121 @@
+# FreshCart Sales & Stock Assistant: Genie space delivered with a Declarative Automation Bundle
+# ------------------------------------------------------------------------------------------------
+# Everything that runs in Databricks for the Genie space is defined in this bundle and deployed with
+#     databricks bundle deploy -t <sandbox | dev | qa | prod>
+#
+#   resources/freshcart_assistant.genie_space.yml   the Genie space: title, warehouse, permissions
+#   resources/freshcart_assistant.space.yml         the space's content (instructions, examples,
+#                                                   benchmarks...) as the variable freshcart_assistant_space
+#   resources/genie_quality_gate.job.yml            benchmark gate + smoke test (and nightly monitor in prod)
+#
+# The space content refers to tables as ${var.catalog}.gold.dim_store, so one definition serves every
+# target: the bundle resolves the catalog for each target at deploy time.
+#
+# Requires Databricks CLI 1.14+ (Genie spaces need the direct deployment engine).
+
+bundle:
+  name: freshcart-genie
+  engine: direct
+  databricks_cli_version: ">= 1.14.0"
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - src/**
+  exclude:
+    - scripts/**
+    - "*.md"
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds this environment's FreshCart data
+  warehouse_id:
+    description: SQL warehouse the Genie space runs on
+    lookup:
+      warehouse: Serverless Starter Warehouse          # override per target with the name of your warehouse
+  title_suffix:
+    description: Appended to the space title so environments can't be confused
+    default: ""
+  business_users_group:
+    description: Group that may ask questions in the space (CAN_RUN)
+    default: freshcart-business-users
+  developers_group:
+    description: Group that builds the space
+    default: freshcart-genie-developers
+  deployers_group:
+    description: Group of the CI/CD service principals that deploy the bundle (CAN_MANAGE)
+    default: freshcart-genie-deployers
+  gate_min_accuracy:
+    description: Share of automatically graded benchmarks that must be answered correctly
+    default: "0.95"
+  gate_max_bad:
+    description: Benchmarks that may be answered incorrectly
+    default: "0"
+  gate_min_graded:
+    description: Benchmarks that must be gradable for the gate to count
+    default: "4"
+  smoke_question:
+    default: What were net sales and margin by region last week?
+
+targets:
+  # Personal sandbox: every developer gets their own copy ("[dev <name>] ..."), under their user folder.
+  sandbox:
+    mode: development
+    default: true
+    variables:
+      catalog: freshcart_dev
+
+  # dev, qa and prod are deployed by each environment's CI/CD service principal, into that principal's
+  # own folder (the default root path), so only the deployers can change the deployed files.
+  #
+  # Shared dev: the space the team edits in the Genie UI. Every UI change is captured in git by
+  # the genie-dev-sync workflow (hourly) before anything else is deployed here.
+  dev:
+    mode: production
+    workspace:
+      # host: https://<dev-workspace>.cloud.databricks.com     # pin the host once known (safer)
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart_dev
+      title_suffix: " [DEV]"
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_MANAGE
+        group_name: ${var.developers_group}
+
+  qa:
+    mode: production
+    workspace:
+      # host: https://<qa-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart_qa
+      title_suffix: " [QA]"
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+
+  prod:
+    mode: production
+    workspace:
+      # host: https://<prod-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+    resources:
+      jobs:
+        genie_quality_gate:
+          schedule:                                   # nightly regression monitor on live data
+            quartz_cron_expression: "0 30 6 * * ?"
+            timezone_id: UTC
+            pause_status: UNPAUSED

@@ -4,9 +4,9 @@
 # It is written to be reviewed in pull requests like code. Enter it in the UI, or use it
 # as the source for a Declarative Automation Bundle / the Genie API when you automate.
 #
-# Version control: `python -m genie_cicd bootstrap` compiled this design into
-# genie/space/freshcart_assistant.geniespace.json, which is now what gets deployed (dev -> qa -> prod).
-# Change the space in the dev UI or in that file; see notebooks/Genie_Version_Control_and_CICD.ipynb.
+# Deployment: this design was compiled into the Declarative Automation Bundle in genie_bundle/
+# (resources/freshcart_assistant.space.yml), which is what is deployed to dev, qa and prod.
+# See notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb.
 
 title: FreshCart Sales & Stock Assistant
 

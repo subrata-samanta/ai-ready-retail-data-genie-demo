@@ -5,7 +5,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 .DS_Store
-# genie_cicd: local simulation state and rendered build files
-.genie_sim/
-build/
-dist/
+# Databricks bundle: local deployment cache
+.databricks/
