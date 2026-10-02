@@ -209,11 +209,21 @@ def summary(space: dict) -> dict:
 
 
 # -------------------------------------------------------------------------------------- validate
+V1_COLUMN_FIELDS = {"get_example_values": "enable_format_assistance", "build_value_dictionary": "enable_entity_matching"}
+
+
 def validate(space: dict) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     if not isinstance(space.get("version"), int):
         errors.append("missing integer 'version'")
+    elif space["version"] >= 2:                  # Genie rejects version 1 column fields in a version 2 space
+        for t in _get(space, ("data_sources", "tables")):
+            for c in t.get("column_configs") or []:
+                for old, new in V1_COLUMN_FIELDS.items():
+                    if old in c:
+                        errors.append(f"{t.get('identifier')}.{c.get('column_name')}: '{old}' is a version 1 field; "
+                                      f"version 2 uses '{new}'")
     if not _get(space, ("data_sources", "tables")) and not _get(space, ("data_sources", "metric_views")):
         errors.append("the space has no data sources")
     groups = {"instructions": [p for p in _ID_SECTIONS if p[0] == "instructions"],

@@ -208,3 +208,12 @@ def test_benchmark_notes_refer_to_existing_benchmarks():
     notes = yaml.safe_load((BUNDLE / "benchmark_notes.yml").read_text())["notes"]
     ids = {b["id"] for b in SPACE["benchmarks"]["questions"]}
     assert set(notes) <= ids, f"notes for benchmarks that no longer exist: {set(notes) - ids}"
+
+
+def test_version_1_column_fields_are_rejected():
+    """Databricks refuses get_example_values / build_value_dictionary in a version 2 space (400 on create)."""
+    bad = json.loads(json.dumps(SPACE))
+    bad["data_sources"]["tables"][0]["column_configs"][0]["get_example_values"] = True
+    errors = T.validate(bad)[0]
+    assert any("'get_example_values' is a version 1 field; version 2 uses 'enable_format_assistance'" in e
+               for e in errors), errors

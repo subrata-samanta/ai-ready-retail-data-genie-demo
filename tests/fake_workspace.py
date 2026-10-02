@@ -116,6 +116,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"etag": sp["etag"]})
 
             # ---- Genie spaces
+            if p.startswith("/api/2.0/genie/spaces") and method in ("POST", "PATCH") and _v1_fields(body):
+                return self._send(400, {"error_code": "INVALID_PARAMETER_VALUE", "message": _v1_fields(body)})
             if p == "/api/2.0/genie/spaces" and method == "POST":
                 sid = uuid.uuid4().hex
                 sp = {"space_id": sid, "title": body.get("title", ""), "description": body.get("description", ""),
@@ -498,6 +500,23 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._safe("DELETE")
+
+
+def _v1_fields(body: dict) -> str | None:
+    """Like the real service: a version 2 space must not use version 1 column fields."""
+    try:
+        d = json.loads(body.get("serialized_space") or "{}")
+    except ValueError:
+        return None
+    if not isinstance(d, dict) or d.get("version", 0) < 2:
+        return None
+    for ti, t in enumerate((d.get("data_sources") or {}).get("tables", [])):
+        for ci, c in enumerate(t.get("column_configs") or []):
+            if "get_example_values" in c or "build_value_dictionary" in c:
+                return (f"Invalid export proto: data_sources.tables[{ti}].column_configs[{ci}] uses version 1 fields "
+                        "(get_example_values, build_value_dictionary) but the export version is 2. Use "
+                        "enable_format_assistance and enable_entity_matching for version 2.")
+    return None
 
 
 def _upgrade(serialized: str) -> str:

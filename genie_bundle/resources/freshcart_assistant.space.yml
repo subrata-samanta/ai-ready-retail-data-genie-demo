@@ -215,46 +215,37 @@ variables:
         - identifier: ${var.catalog}.semantic.sales_metrics
         tables:
         - column_configs:
-          - build_value_dictionary: true
-            column_name: brand
+          - column_name: brand
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: category
+            enable_format_assistance: true
+          - column_name: category
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: department
+            enable_format_assistance: true
+          - column_name: department
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: subcategory
+            enable_format_assistance: true
+          - column_name: subcategory
             enable_entity_matching: true
-            get_example_values: true
+            enable_format_assistance: true
           identifier: ${var.catalog}.gold.dim_product
         - column_configs:
-          - build_value_dictionary: true
-            column_name: city
+          - column_name: city
             enable_entity_matching: true
-            get_example_values: true
+            enable_format_assistance: true
           - column_name: comparable_from_fiscal_year
             exclude: true
-          - build_value_dictionary: true
-            column_name: region
+          - column_name: region
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: state_province
+            enable_format_assistance: true
+          - column_name: state_province
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: store_format
+            enable_format_assistance: true
+          - column_name: store_format
             enable_entity_matching: true
-            get_example_values: true
-          - build_value_dictionary: true
-            column_name: store_name
+            enable_format_assistance: true
+          - column_name: store_name
             enable_entity_matching: true
-            get_example_values: true
+            enable_format_assistance: true
           identifier: ${var.catalog}.gold.dim_store
       instructions:
         example_question_sqls:
