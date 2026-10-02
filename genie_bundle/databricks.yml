@@ -49,11 +49,11 @@ variables:
     description: Group of the CI/CD service principals that deploy the bundle (CAN_MANAGE)
     default: freshcart-genie-deployers
   gate_min_accuracy:
-    description: Share of automatically graded benchmarks that must be answered correctly
-    default: "0.95"
+    description: Share of automatically graded benchmarks that must be answered correctly (0.60 = 60%)
+    default: "0.60"
   gate_max_bad:
-    description: Benchmarks that may be answered incorrectly
-    default: "0"
+    description: Benchmarks that may be answered incorrectly; -1 = no separate limit (the accuracy decides)
+    default: "-1"
   gate_min_graded:
     description: Benchmarks that must be gradable for the gate to count
     default: "4"

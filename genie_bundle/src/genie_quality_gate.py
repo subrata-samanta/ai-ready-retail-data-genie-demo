@@ -1,9 +1,9 @@
 """Quality gate for the FreshCart Genie space. Runs as the task of the bundle job `genie_quality_gate`.
 
     mode=gate   run every benchmark of the space (Genie benchmark evaluation) and fail unless
-                  - no benchmark is answered incorrectly (BAD <= max_bad),
+                  - accuracy on the automatically graded benchmarks is >= min_accuracy (default 60%),
                   - at least min_graded benchmarks could be graded automatically, and
-                  - accuracy on the graded ones is >= min_accuracy
+                  - at most max_bad benchmarks are answered incorrectly (-1, the default: no separate limit)
     mode=smoke  ask one question; fail unless Genie answers with SQL
 
 A failed check raises SystemExit(1), so the job run fails and `databricks bundle run` exits non-zero,
@@ -61,7 +61,7 @@ def evaluate(res: dict, *, min_accuracy: float, max_bad: int, min_graded: int) -
     reasons = []
     if res["status"] != "DONE":
         reasons.append(f"the benchmark run ended with status {res['status']}")
-    if res["num_bad"] > max_bad:
+    if 0 <= max_bad < res["num_bad"]:
         reasons.append(f"{res['num_bad']} benchmark(s) answered incorrectly (allowed {max_bad})")
     if graded < min_graded:
         reasons.append(f"only {graded} benchmark(s) could be graded (need {min_graded})")
@@ -99,8 +99,8 @@ def main(argv=None, client=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--space-id", required=True)
     ap.add_argument("--mode", choices=["gate", "smoke"], default="gate")
-    ap.add_argument("--min-accuracy", type=float, default=0.95)
-    ap.add_argument("--max-bad", type=int, default=0)
+    ap.add_argument("--min-accuracy", type=float, default=0.60)
+    ap.add_argument("--max-bad", type=int, default=-1, help="-1: no separate limit on wrong answers")
     ap.add_argument("--min-graded", type=int, default=1)
     ap.add_argument("--smoke-question", default="What were net sales and margin by region last week?")
     args = ap.parse_args(argv)

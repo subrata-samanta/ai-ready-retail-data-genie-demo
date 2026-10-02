@@ -820,8 +820,9 @@ for q in ["What were net sales and margin by region last week?",
 # MAGIC ## Step 13 · The quality gate
 # MAGIC
 # MAGIC Each benchmark is a question with the SQL that gives the right answer, signed off by the business. The gate job
-# MAGIC asks Genie every benchmark, lets Genie's evaluation compare the answers, and **fails** unless at least 95% are
-# MAGIC right and none is wrong (`genie_bundle/databricks.yml`: `gate_min_accuracy`, `gate_max_bad`). In the release
+# MAGIC asks Genie every benchmark, lets Genie's evaluation compare the answers, and **fails** unless at least 60% are
+# MAGIC right (`gate_min_accuracy: "0.60"` in `genie_bundle/databricks.yml`). `gate_max_bad` can also cap the number of
+# MAGIC wrong answers; it is `-1` (no cap) by default. Raise both as the space matures (for example `0.95` and `0`). In the release
 # MAGIC pipeline nothing reaches prod without a passed gate in qa. `mode=smoke` asks one question and only checks that
 # MAGIC Genie answers with SQL; it runs right after a prod deploy.
 

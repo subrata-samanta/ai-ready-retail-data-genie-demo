@@ -185,7 +185,8 @@ def test_bundle_with_the_real_databricks_cli():
         assert "0 to add, 0 to change, 0 to delete" in run(cli, "bundle", "plan", "-t", "qa")
         space_id = json.loads(run(cli, "bundle", "summary", "-t", "qa", "-o", "json"))["resources"]["genie_spaces"][T.SPACE_KEY]["id"]
 
-        gate = [sys.executable, "src/genie_quality_gate.py", "--space-id", space_id, "--min-graded", "4"]
+        gate = [sys.executable, "src/genie_quality_gate.py", "--space-id", space_id, "--min-graded", "4",
+                "--min-accuracy", "0.95", "--max-bad", "0"]          # strict thresholds: one wrong answer fails
         run(*gate)                                                       # the correct space passes
         ws.ui_edit(space_id, _break_example)                             # someone breaks it in the UI
         plan = run(cli, "bundle", "plan", "-t", "qa", "-o", "json")
@@ -241,3 +242,14 @@ def test_gate_prints_genie_sql_for_wrong_answers():
     assert not res["passed"]
     assert "BAD  q stock" in out.getvalue() and "Genie's SQL:" in out.getvalue()
     assert "         SELECT snapshot_date, MEASURE(on_hand_units)" in out.getvalue()
+
+
+def test_gate_thresholds_are_60_percent_with_no_wrong_answer_cap():
+    sys.path.insert(0, str(BUNDLE / "src"))
+    import genie_quality_gate as G
+    variables = yaml.safe_load((BUNDLE / "databricks.yml").read_text())["variables"]
+    assert variables["gate_min_accuracy"]["default"] == "0.60" and variables["gate_max_bad"]["default"] == "-1"
+    run = {"status": "DONE", "num_questions": 17, "num_needs_review": 0, "results": []}
+    assert G.evaluate({**run, "num_correct": 12, "num_bad": 5}, min_accuracy=0.60, max_bad=-1, min_graded=4)["passed"]
+    assert not G.evaluate({**run, "num_correct": 10, "num_bad": 7}, min_accuracy=0.60, max_bad=-1, min_graded=4)["passed"]
+    assert not G.evaluate({**run, "num_correct": 12, "num_bad": 5}, min_accuracy=0.60, max_bad=0, min_graded=4)["passed"]
