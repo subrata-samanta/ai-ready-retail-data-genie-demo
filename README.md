@@ -134,6 +134,10 @@ Running it on Databricks from an empty workspace? Add this repository as a Git f
 compute: catalog, schemas, raw files, the pipeline and refresh job ([`databricks/`](databricks/), a bundle), the Genie
 space, its benchmark gate, version history and promotion to qa and prod, one step at a time.
 
+Taking it to production? [`notebooks/FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub.ipynb`](notebooks/FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub.ipynb)
+sets up service principals and the GitHub repository, then ships a real change from a pull request through dev and qa
+to an approved prod release, with version history, rollback and monitoring, using only bundles and GitHub Actions.
+
 Taking the Genie space to production? It is delivered as a Declarative Automation Bundle in
 [`genie_bundle/`](genie_bundle/) (targets sandbox, dev, qa, prod), with version history for every change made in the dev
 space, rollback, benchmark gates, approvals and drift protection in [`.github/workflows/genie-*.yml`](.github/workflows/).
@@ -153,7 +157,7 @@ semantic/            metric-view YAML (used locally AND on Databricks) + like-fo
 databricks/          the Databricks version as a bundle: Lakeflow pipeline, refresh job (gold, governance, metric views)
 tests/               pipeline, bundles and notebook tests, incl. raw-to-gold reconciliation
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
-notebooks/           every table step by step; Genie version control and CI/CD; end to end on Databricks
+notebooks/           every table step by step; end to end on Databricks; dev to prod with DAB and GitHub
 genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
 ```
 

@@ -1,11 +1,11 @@
-"""Generate the .ipynb version of the end-to-end Databricks notebook from its Databricks source file.
+"""Generate the .ipynb version of each Databricks notebook from its Databricks source file.
 
-    notebooks/FreshCart_End_to_End_on_Databricks_source.py   (Databricks source format: clean diffs in reviews)
-        -> notebooks/FreshCart_End_to_End_on_Databricks.ipynb (renders on GitHub; opens in Databricks and Jupyter)
+    notebooks/<Name>_source.py   (Databricks source format: clean diffs in reviews)
+        -> notebooks/<Name>.ipynb (renders on GitHub; opens in Databricks and Jupyter)
 
     python -m freshcart.databricks_notebook
 
-Both files hold the same cells; tests/test_databricks_notebook.py fails if the .ipynb is out of date.
+Both files hold the same cells; the notebook tests fail if an .ipynb is out of date.
 (They need different names: in a Databricks Git folder X.py and X.ipynb would both be the notebook X.)
 """
 from __future__ import annotations
@@ -15,8 +15,13 @@ from pathlib import Path
 
 from . import config as C
 
-SOURCE = C.ROOT / "notebooks" / "FreshCart_End_to_End_on_Databricks_source.py"
-TARGET = C.ROOT / "notebooks" / "FreshCart_End_to_End_on_Databricks.ipynb"
+NOTEBOOKS = ["FreshCart_End_to_End_on_Databricks", "FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub"]
+SOURCE = C.ROOT / "notebooks" / f"{NOTEBOOKS[0]}_source.py"
+TARGET = C.ROOT / "notebooks" / f"{NOTEBOOKS[0]}.ipynb"
+
+
+def paths(name: str) -> tuple[Path, Path]:
+    return C.ROOT / "notebooks" / f"{name}_source.py", C.ROOT / "notebooks" / f"{name}.ipynb"
 HEADER = "# Databricks notebook source"
 SEPARATOR = "\n# COMMAND ----------\n"
 
@@ -51,7 +56,7 @@ def to_ipynb(source: Path = SOURCE) -> dict:
         "cells": nb_cells,
         "metadata": {
             "application/vnd.databricks.v1+notebook": {"language": "python",
-                                                       "notebookName": TARGET.stem},
+                                                       "notebookName": source.stem.removesuffix("_source")},
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
             "language_info": {"name": "python"},
         },
@@ -65,8 +70,11 @@ def render(source: Path = SOURCE) -> str:
 
 
 def main() -> None:
-    TARGET.write_text(render(), encoding="utf-8")
-    print(f"wrote {TARGET.relative_to(C.ROOT)}")
+    for name in NOTEBOOKS:
+        source, target = paths(name)
+        if source.exists():
+            target.write_text(render(source), encoding="utf-8")
+            print(f"wrote {target.relative_to(C.ROOT)}")
 
 
 if __name__ == "__main__":

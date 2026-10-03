@@ -1,14 +1,15 @@
-# Genie space bundle: rollback (run manually from the Actions tab)
+# Rollback (run by hand from the Actions tab): restore an earlier version to one environment
 #
 #   to    = previous                       the release before the latest genie-prod-* tag
 #         = <git tag or commit>            e.g. genie-prod-20261001.0915-1a2b3c4, or genie-dev-snapshot-<time>
-#   scope = space   (default)  restore only resources/freshcart_assistant.space.yml from that version and
-#                              deploy it with today's bundle (the job, permissions, ... stay current)
-#         = bundle             deploy the whole genie_bundle/ folder as it was at that version
+#   what  = genie-space  (default)  only resources/freshcart_assistant.space.yml, deployed with today's Genie bundle
+#         = genie-bundle            the whole genie_bundle/ folder as it was (space, gate job, permissions)
+#         = data-bundle             the whole databricks/ folder as it was (pipeline, refresh job, SQL), then a refresh
+#         = everything              both bundles as they were, data first
 #
-# It is a normal `databricks bundle deploy`, approved like any prod deploy, and the live space is backed
-# up first. Afterwards, fix forward on main (for example `git revert`) so the next release doesn't
-# bring the bad version back.
+# It is a normal `databricks bundle deploy`, approved like any prod deploy, and the live Genie space is backed up
+# first. Afterwards, fix forward on main (for example `git revert`) so the next release doesn't bring the bad
+# version back.
 name: genie-rollback
 
 on:
@@ -23,11 +24,15 @@ on:
         description: "previous | <git tag or commit>"
         default: previous
         required: true
-      scope:
+      what:
         description: What to restore
         type: choice
-        options: [space, bundle]
-        default: space
+        options: [genie-space, genie-bundle, data-bundle, everything]
+        default: genie-space
+      refresh_data:
+        description: After restoring the data bundle, rebuild the data (run freshcart_refresh)
+        type: boolean
+        default: true
       reason:
         description: Why (kept in the run log)
         required: true
@@ -47,14 +52,13 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
       TARGET: ${{ inputs.environment }}        # inputs reach the shell as variables, never as code
       ROLLBACK_TO: ${{ inputs.to }}
-      SCOPE: ${{ inputs.scope }}
+      WHAT: ${{ inputs.what }}
+      REFRESH: ${{ inputs.refresh_data }}
       REASON: ${{ inputs.reason }}
-    defaults:
-      run:
-        working-directory: genie_bundle
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,10 +69,10 @@ jobs:
       - uses: databricks/setup-cli@main
         with:
           version: "1.18.0"
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r genie_bundle/requirements-dev.txt
       - name: Resolve the version to restore
         run: |
-          echo "Rollback of $TARGET to '$ROLLBACK_TO' (scope $SCOPE) requested by $GITHUB_ACTOR: $REASON"
+          echo "Rollback of $TARGET ($WHAT) to '$ROLLBACK_TO' requested by $GITHUB_ACTOR: $REASON"
           if [ "$ROLLBACK_TO" = "previous" ]; then
             REF=$(git tag -l 'genie-prod-*' --sort=-refname | sed -n 2p)
             [ -n "$REF" ] || { echo "::error::there is no earlier genie-prod-* release"; exit 1; }
@@ -77,29 +81,43 @@ jobs:
           fi
           git rev-parse --verify "$REF^{commit}" >/dev/null
           echo "REF=$REF" >> "$GITHUB_ENV"
-          echo "Restoring $TARGET to $REF" >> "$GITHUB_STEP_SUMMARY"
+          echo "Restoring $WHAT in $TARGET to $REF" >> "$GITHUB_STEP_SUMMARY"
       - name: Check out that version
         run: |
-          if [ "$SCOPE" = "space" ]; then
-            git checkout "$REF" -- resources/freshcart_assistant.space.yml
-          else
-            git checkout "$REF" -- .
-          fi
+          case "$WHAT" in
+            genie-space)  git checkout "$REF" -- genie_bundle/resources/freshcart_assistant.space.yml ;;
+            genie-bundle) git checkout "$REF" -- genie_bundle ;;
+            data-bundle)  git checkout "$REF" -- databricks ;;
+            everything)   git checkout "$REF" -- databricks genie_bundle ;;
+          esac
           git status --short
-      - name: Plan and backup of the live space
+      - name: Data bundle
+        if: inputs.what == 'data-bundle' || inputs.what == 'everything'
+        working-directory: databricks
+        run: |
+          databricks bundle plan -t "$TARGET"
+          databricks bundle deploy -t "$TARGET"
+          if [ "$REFRESH" = "true" ]; then databricks bundle run freshcart_refresh -t "$TARGET"; fi
+      - name: Genie plan and backup of the live space
+        if: inputs.what != 'data-bundle'
+        working-directory: genie_bundle
         run: |
           databricks bundle plan -t "$TARGET"
           databricks bundle plan -t "$TARGET" -o json > plan.json
           python scripts/check_drift.py plan.json -t "$TARGET" --backup-dir backup --allow-drift
-      - uses: actions/upload-artifact@v4
+      - if: inputs.what != 'data-bundle'
+        uses: actions/upload-artifact@v4
         with:
           name: genie-${{ inputs.environment }}-pre-rollback-${{ github.run_id }}
           path: |
             genie_bundle/plan.json
             genie_bundle/backup/
           retention-days: 400
-      - name: Deploy the restored version
+      - name: Deploy the restored Genie version
+        if: inputs.what != 'data-bundle'
+        working-directory: genie_bundle
         run: databricks bundle deploy -t "$TARGET"
       - name: Smoke test
-        if: inputs.environment != 'dev'
+        if: inputs.environment != 'dev' && inputs.what != 'data-bundle'
+        working-directory: genie_bundle
         run: databricks bundle run genie_quality_gate -t "$TARGET" --params mode=smoke

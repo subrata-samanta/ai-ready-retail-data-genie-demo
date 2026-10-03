@@ -8,6 +8,8 @@ resources:
       name: FreshCart Genie quality gate${var.title_suffix}
       description: Runs the Genie space's benchmarks (mode=gate) or one smoke-test question (mode=smoke).
       max_concurrent_runs: 1
+      email_notifications:
+        on_failure: ${var.alert_emails}
       parameters:
         - name: space_id
           default: ${resources.genie_spaces.freshcart_assistant.id}

@@ -48,6 +48,10 @@ variables:
   deployers_group:
     description: Group of the CI/CD service principals that deploy the bundle (CAN_MANAGE)
     default: freshcart-genie-deployers
+  alert_emails:
+    description: E-mail addresses told when the quality gate fails (in prod it also runs nightly)
+    type: complex
+    default: []
   gate_min_accuracy:
     description: Share of automatically graded benchmarks that must be answered correctly (0.60 = 60%)
     default: "0.60"

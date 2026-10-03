@@ -4,13 +4,16 @@
 #   gold      gold tables (created if missing) and MERGE loads
 #   security  row filters on the facts, grants for Genie users
 #   semantic  metric views and the like-for-like function
-# src/run_sql.py runs the SQL files, replacing ${catalog} and ${as_of_date}.
+#   monitor   data health checks (freshness, volumes, rejected and unmatched rows), history in <catalog>.monitoring
+# src/run_sql.py runs the SQL files, replacing ${catalog} and ${as_of_date}. A failed task e-mails var.alert_emails.
 resources:
   jobs:
     freshcart_refresh:
       name: FreshCart data refresh${var.title_suffix}
       description: Setup, bronze and silver pipeline, gold loads, security and semantic layer for ${var.catalog}.
       max_concurrent_runs: 1
+      email_notifications:
+        on_failure: ${var.alert_emails}
       tasks:
         - task_key: setup
           environment_key: default
@@ -50,6 +53,13 @@ resources:
             parameters: [--catalog, "${var.catalog}", --as-of-date, "${var.as_of_date}",
                          "${workspace.file_path}/semantic/02_metric_views.sql",
                          "${workspace.file_path}/semantic/03_fn_like_for_like_sales.sql"]
+        - task_key: monitor
+          depends_on: [{task_key: security}, {task_key: semantic}]
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/monitor.py
+            parameters: [--catalog, "${var.catalog}", --as-of-date, "${var.as_of_date}",
+                         "${workspace.file_path}/monitoring/01_health_checks.sql"]
       environments:
         - environment_key: default
           spec:

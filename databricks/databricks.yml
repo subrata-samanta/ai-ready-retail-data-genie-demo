@@ -35,6 +35,10 @@ variables:
   title_suffix:
     description: Appended to job and pipeline names so environments can't be confused
     default: ""
+  alert_emails:
+    description: E-mail addresses told when the refresh job fails (for example a failed health check)
+    type: complex
+    default: []
   developers_group:
     description: Group that builds the data products
     default: freshcart-genie-developers

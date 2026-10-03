@@ -65,6 +65,10 @@ class _DF:
         assert Path(path).exists(), path
         return self
 
+    def toPandas(self):
+        import pandas as pd
+        return pd.DataFrame(self._rows)
+
 
 class _Spark:
     """Records statements; answers SELECTs from the local SQLite warehouse."""
@@ -108,15 +112,24 @@ class _Widgets:
         return self.values.get(name, self.defaults[name])
 
 
+class _Secrets:
+    def __init__(self, scopes: dict):
+        self.scopes = scopes
+
+    def get(self, scope, key):
+        return self.scopes[scope][key]
+
+
 class _DBUtils:
-    def __init__(self, values):
+    def __init__(self, values, secret_scopes=None):
         self.widgets = _Widgets(values)
+        self.secrets = _Secrets(secret_scopes if secret_scopes is not None else {})
         self.library = type("L", (), {"restartPython": staticmethod(lambda: None)})()
         self.notebook = type("N", (), {"entry_point": None})()       # context lookups fall back to cwd
 
 
 def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None, until: str | None = None,
-                 setup=None) -> tuple[dict, str, object]:
+                 setup=None, notebook: Path = NOTEBOOK) -> tuple[dict, str, object]:
     """Run the notebook's Python cells in order (until the markdown cell containing `until`, if given).
     `setup(workspace)` runs first, to prepare the stand-in workspace."""
     from fake_workspace import FakeWorkspace, FreshCartEvaluator
@@ -131,7 +144,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
                     'VOLUMES = Path("/Volumes")': f'VOLUMES = Path({str(volumes)!r})',
                     **(extra_replacements or {})}
     spark = _Spark()
-    ns = {"spark": spark, "dbutils": _DBUtils(widgets), "display": lambda *a, **k: None,
+    ns = {"spark": spark, "dbutils": _DBUtils(widgets, ws.state.secret_scopes), "display": lambda *a, **k: None,
           "displayHTML": lambda *a, **k: None, "__name__": "__notebook__"}
     out = io.StringIO()
     saved = {k: os.environ.get(k) for k in ("DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_CONFIG_PROFILE")}
@@ -140,7 +153,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
     cwd = os.getcwd()
     os.chdir(ROOT / "notebooks")
     try:
-        for i, (kind, src) in enumerate(cells()):
+        for i, (kind, src) in enumerate(cells(notebook)):
             if until and kind == "md" and until in src:
                 break
             if kind != "py":
@@ -149,7 +162,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
                 src = src.replace(old, new)
             with contextlib.redirect_stdout(out):
                 try:
-                    exec(compile(src, f"{NOTEBOOK.name}[cell {i}]", "exec"), ns)
+                    exec(compile(src, f"{notebook.name}[cell {i}]", "exec"), ns)
                 except Exception as e:
                     raise AssertionError(f"cell {i} failed: {e}\n--- output ---\n{out.getvalue()[-4000:]}") from e
     finally:

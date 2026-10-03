@@ -1,14 +1,18 @@
-# Genie space bundle: release  main -> dev -> qa (benchmark gate) -> prod (approval)
+# Release of the whole FreshCart product: main -> dev -> qa (gates) -> prod (approval)
 #
-# Every environment is deployed with `databricks bundle deploy -t <target>` from the SAME commit.
-# Before each deploy: `bundle plan -o json` -> check_drift.py (refuses to overwrite UI edits in qa/prod,
-# refuses to delete or recreate the space, saves the live space as a backup artifact).
-# Gates run as the bundle's own job: `databricks bundle run genie_quality_gate`.
+# Each environment gets, from the SAME commit:
+#   1. the data bundle  (databricks/):   bundle deploy, then bundle run freshcart_refresh (pipeline, gold,
+#                                        security, semantic layer and the data health checks)
+#   2. the Genie bundle (genie_bundle/): bundle plan -> check_drift.py (refuses to overwrite UI edits in qa/prod,
+#                                        refuses to delete or recreate the space, keeps a backup) -> bundle deploy
+#   qa:   the Genie benchmark gate (bundle run genie_quality_gate) and a smoke test must pass
+#   prod: waits for an approval (required reviewers on the GitHub environment prod), then deploys,
+#         smoke-tests (restoring the previous Genie space if that fails) and tags the release genie-prod-<UTC>-<sha>
 #
-# One-time setup (notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb, part 7):
-#   GitHub environments dev, qa, prod (prod: required reviewers, deployment branch main), each with
-#   variables DATABRICKS_HOST and DATABRICKS_CLIENT_ID (its deployment service principal).
-#   Auth is GitHub OIDC -> Databricks workload identity federation: no secrets stored.
+# One-time setup: notebooks/FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub (part B).
+#   GitHub environments dev, qa, prod with variables DATABRICKS_HOST and DATABRICKS_CLIENT_ID (the environment's
+#   deployment service principal). Sign-in: GitHub OIDC with a Databricks federation policy (no secret stored),
+#   or, if the environment has the secret DATABRICKS_CLIENT_SECRET, an OAuth secret of the service principal.
 # Until DATABRICKS_HOST is set for an environment, its steps are skipped with a notice.
 name: genie-release
 
@@ -17,8 +21,13 @@ on:
     branches: [main]
     paths:
       - "genie_bundle/**"
+      - "databricks/**"
   workflow_dispatch:
     inputs:
+      refresh_data:
+        description: Run the data refresh job after deploying the data bundle
+        type: boolean
+        default: true
       allow_drift:
         description: Overwrite edits made in the qa/prod UI since the last deploy (a backup is kept)
         type: boolean
@@ -39,8 +48,8 @@ permissions:
 
 env:
   DATABRICKS_CLI_VERSION: "1.18.0"
-  DATABRICKS_AUTH_TYPE: github-oidc
   DRIFT_FLAGS: ${{ inputs.allow_drift && '--allow-drift' || '' }} ${{ inputs.allow_destroy && '--allow-destroy' || '' }}
+  REFRESH: ${{ inputs.refresh_data != false }}   # pushes have no inputs: refresh
 
 jobs:
   # 1. Capture any UI edits in dev into git before dev is redeployed (nothing is ever lost).
@@ -48,7 +57,7 @@ jobs:
     uses: ./.github/workflows/genie-dev-sync.yml
     secrets: inherit
 
-  # 2. Bring dev in line with main.
+  # 2. Dev: data, then Genie.
   dev:
     needs: dev-snapshot
     runs-on: ubuntu-latest
@@ -56,9 +65,8 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-    defaults:
-      run:
-        working-directory: genie_bundle
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
@@ -67,12 +75,21 @@ jobs:
       - id: cfg
         run: |
           if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
-      - if: steps.cfg.outputs.ready == 'true'
-        run: databricks bundle validate -t dev
-      - if: steps.cfg.outputs.ready == 'true'
-        run: databricks bundle deploy -t dev
+      - name: Data bundle
+        if: steps.cfg.outputs.ready == 'true'
+        working-directory: databricks
+        run: |
+          databricks bundle validate -t dev
+          databricks bundle deploy -t dev
+          if [ "$REFRESH" = "true" ]; then databricks bundle run freshcart_refresh -t dev; fi
+      - name: Genie bundle
+        if: steps.cfg.outputs.ready == 'true'
+        working-directory: genie_bundle
+        run: |
+          databricks bundle validate -t dev
+          databricks bundle deploy -t dev
 
-  # 3. QA: plan, drift gate, deploy, benchmark gate, smoke test.
+  # 3. QA: data, then Genie with drift gate, benchmark gate and smoke test.
   qa:
     needs: dev
     runs-on: ubuntu-latest
@@ -82,9 +99,8 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-    defaults:
-      run:
-        working-directory: genie_bundle
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -93,15 +109,22 @@ jobs:
       - uses: databricks/setup-cli@main
         with:
           version: ${{ env.DATABRICKS_CLI_VERSION }}
-      - run: pip install -r requirements-dev.txt
+      - run: pip install -r genie_bundle/requirements-dev.txt
       - id: cfg
         run: |
           if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::qa is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
-      - if: steps.cfg.outputs.ready == 'true'
-        run: databricks bundle validate -t qa
-      - name: Plan, drift gate and backup of the live space
+      - name: Data bundle (deploy, refresh, health checks)
         if: steps.cfg.outputs.ready == 'true'
+        working-directory: databricks
         run: |
+          databricks bundle validate -t qa
+          databricks bundle deploy -t qa
+          if [ "$REFRESH" = "true" ]; then databricks bundle run freshcart_refresh -t qa; fi
+      - name: Genie plan, drift gate and backup of the live space
+        if: steps.cfg.outputs.ready == 'true'
+        working-directory: genie_bundle
+        run: |
+          databricks bundle validate -t qa
           databricks bundle plan -t qa
           databricks bundle plan -t qa -o json > plan.qa.json
           python scripts/check_drift.py plan.qa.json -t qa --backup-dir backup $DRIFT_FLAGS
@@ -113,15 +136,18 @@ jobs:
             genie_bundle/plan.qa.json
             genie_bundle/backup/
           retention-days: 90
-      - name: Deploy
+      - name: Genie deploy
         if: steps.cfg.outputs.ready == 'true'
+        working-directory: genie_bundle
         run: databricks bundle deploy -t qa
       - id: gate
         name: Benchmark gate (bundle job)
         if: steps.cfg.outputs.ready == 'true'
+        working-directory: genie_bundle
         run: databricks bundle run genie_quality_gate -t qa
       - name: Smoke test (bundle job)
         if: steps.cfg.outputs.ready == 'true'
+        working-directory: genie_bundle
         run: databricks bundle run genie_quality_gate -t qa --params mode=smoke
 
   # 4. Prod: same commit, after approval (required reviewers on the prod environment).
@@ -133,23 +159,29 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-    defaults:
-      run:
-        working-directory: genie_bundle
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0                       # release tags, for the automatic rollback
+          fetch-depth: 0                       # release tags, for the automatic restore
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - uses: databricks/setup-cli@main
         with:
           version: ${{ env.DATABRICKS_CLI_VERSION }}
-      - run: pip install -r requirements-dev.txt
-      - run: databricks bundle validate -t prod
-      - name: Plan, drift gate and backup of the live space
+      - run: pip install -r genie_bundle/requirements-dev.txt
+      - name: Data bundle (deploy, refresh, health checks)
+        working-directory: databricks
         run: |
+          databricks bundle validate -t prod
+          databricks bundle deploy -t prod
+          if [ "$REFRESH" = "true" ]; then databricks bundle run freshcart_refresh -t prod; fi
+      - name: Genie plan, drift gate and backup of the live space
+        working-directory: genie_bundle
+        run: |
+          databricks bundle validate -t prod
           databricks bundle plan -t prod
           databricks bundle plan -t prod -o json > plan.prod.json
           python scripts/check_drift.py plan.prod.json -t prod --backup-dir backup $DRIFT_FLAGS
@@ -160,9 +192,11 @@ jobs:
             genie_bundle/plan.prod.json
             genie_bundle/backup/
           retention-days: 400
-      - name: Deploy
+      - name: Genie deploy
+        working-directory: genie_bundle
         run: databricks bundle deploy -t prod
-      - name: Smoke test (rolls the space back to the previous release if it fails)
+      - name: Smoke test (restores the previous Genie space if it fails)
+        working-directory: genie_bundle
         run: |
           if ! databricks bundle run genie_quality_gate -t prod --params mode=smoke; then
             PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)
@@ -178,4 +212,4 @@ jobs:
           TAG="genie-prod-$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"
           git tag "$TAG" "$GITHUB_SHA"
           git push origin "$TAG"
-          echo "Released $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "Released $TAG (data bundle and Genie bundle)" >> "$GITHUB_STEP_SUMMARY"

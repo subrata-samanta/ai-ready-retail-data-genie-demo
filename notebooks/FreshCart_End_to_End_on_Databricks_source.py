@@ -974,7 +974,7 @@ else:
 # MAGIC |---|---|---|
 # MAGIC | `demo` (`ci.yml`) | every push and pull request | the local pipeline, all tests, docs up to date |
 # MAGIC | `genie-ci` | pull requests that touch the bundles | space validation, `bundle validate` for every target, the list of changes in the space |
-# MAGIC | `genie-release` | merge to `main` | dev, then qa (drift check, deploy, benchmark gate), then **approval**, then prod (deploy, smoke test, automatic restore if it fails, release tag) |
+# MAGIC | `genie-release` | merge to `main` | each environment gets the data bundle (deploy, refresh, health checks) and then the Genie bundle: dev, then qa (drift check, benchmark gate), then **approval**, then prod (smoke test, automatic restore if it fails, release tag) |
 # MAGIC | `genie-rollback` | by hand | restore any release tag or commit to an environment |
 # MAGIC | `genie-dev-sync` | hourly | edits made in the dev Genie UI become a tagged commit and a pull request |
 # MAGIC
@@ -991,11 +991,16 @@ else:
 # MAGIC 4. **A `main` branch**, as the repository's default branch, protected so that changes arrive by pull request with
 # MAGIC    the `demo` and `genie-ci` checks green.
 # MAGIC
+# MAGIC **The companion notebook `FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub` does all of this for you** (the service
+# MAGIC principals and their access, the GitHub environments, secrets, approvals and branch protection), hands your
+# MAGIC hand-made deployments over to CI/CD, and then walks a real change from a pull request to prod, with version
+# MAGIC history, rollback and monitoring. The cell below is the minimal manual alternative.
+# MAGIC
 # MAGIC Notes for the hand-over:
 # MAGIC
-# MAGIC * The data in qa and prod that this notebook built stays as it is. The release workflow deploys the Genie bundle
-# MAGIC   as the service principal, which creates its own qa and prod spaces; remove the ones you deployed by hand with
-# MAGIC   `bundle("genie", "qa", "destroy", "--auto-approve")` (same for prod) once the first release has run.
+# MAGIC * A bundle remembers its deployment per identity: before the first release, remove what you deployed by hand
+# MAGIC   (`bundle("genie", env, "destroy", "--auto-approve")`, then the same for `"data"`), or the service principal's
+# MAGIC   pipeline would compete with yours for the same tables. The companion notebook does it in its Part C.
 # MAGIC * CI finds the SQL warehouse by name: `Serverless Starter Warehouse` (`warehouse_id` in `genie_bundle/databricks.yml`).
 # MAGIC   If yours has another name, change that lookup in the YAML.
 

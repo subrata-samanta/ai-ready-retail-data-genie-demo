@@ -136,7 +136,7 @@ def test_job_scripts_do_not_exit_on_success():
                 for task in job["tasks"]:
                     if task.get("spark_python_task"):
                         scripts.append((bundle / "resources" / task["spark_python_task"]["python_file"]).resolve())
-    assert len(set(scripts)) == 2, scripts
+    assert {p.name for p in scripts} == {"run_sql.py", "monitor.py", "genie_quality_gate.py"}, scripts
     for script in set(scripts):
         code = script.read_text()
         assert "sys.exit(main())" not in code and "sys.exit(0)" not in code, f"{script.name} exits on success"
@@ -190,3 +190,39 @@ def test_sql_functions_keep_parameters_out_of_aggregates():
                 assert not used, f"{path.name}: aggregate {agg.sql()[:80]} uses parameter(s) {used}"
             checked += 1
     assert checked == 1, "expected the like-for-like function"
+
+
+def test_monitor_records_every_check_and_fails_on_a_breach():
+    import monitor
+
+    class Row(dict):
+        def asDict(self):
+            return dict(self)
+
+    class Spark:
+        def __init__(self, failing=()):
+            self.statements, self.failing = [], set(failing)
+
+        def sql(self, s):
+            self.statements.append(s)
+            # the check names in the INSERT (snake_case literals; the run id is hex without underscores)
+            names = re.findall(r"SELECT '([a-z]+_[a-z_]+)'", self.statements[2]) if len(self.statements) > 2 else []
+            rows = [Row(check_name=n, observed=1.0, threshold=1.0, rule="max", passed=n not in self.failing, detail="")
+                    for n in names]
+            return type("DF", (), {"collect": lambda _self: rows})()
+
+    checks = DATA / "monitoring" / "01_health_checks.sql"
+    out = []
+    spark = Spark()
+    results = monitor.run(spark, str(checks), "freshcart_qa", "2026-09-27", echo=out.append)
+    assert len(results) == 6 and out[-1].startswith("all 6 health checks passed on freshcart_qa")
+    assert spark.statements[0].startswith("CREATE SCHEMA IF NOT EXISTS freshcart_qa.monitoring")
+    assert "freshcart_qa.monitoring.health_checks" in spark.statements[1]
+    insert = spark.statements[2]
+    assert insert.startswith("INSERT INTO freshcart_qa.monitoring.health_checks") and "${" not in insert
+    assert "freshcart_qa.gold.fct_sales_line" in insert and "try_to_date('2026-09-27')" in insert
+    try:
+        monitor.run(Spark(failing={"sales_are_fresh"}), str(checks), "freshcart_qa", echo=out.append)
+        raise AssertionError("a failed check must fail the task")
+    except monitor.HealthCheckFailed as e:
+        assert "sales_are_fresh" in str(e)

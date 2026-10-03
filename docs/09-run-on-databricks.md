@@ -40,6 +40,8 @@ generated from it. The notebook:
 | `security` | [`governance/01_security.sql`](../databricks/governance/01_security.sql) | Row filters on the facts, grants for Genie users |
 | `semantic` | [`semantic/02_metric_views.sql`](../databricks/semantic/02_metric_views.sql) (**generated** from `semantic/*.yaml`), [`semantic/03_fn_like_for_like_sales.sql`](../databricks/semantic/03_fn_like_for_like_sales.sql) | The two metric views and the trusted like-for-like function |
 
+| `monitor` | [`monitoring/01_health_checks.sql`](../databricks/monitoring/01_health_checks.sql) via [`src/monitor.py`](../databricks/src/monitor.py) | Health checks (freshness, volume, rejected and unmatched rows) appended to `<catalog>.monitoring.health_checks`; a failed check fails the job, which e-mails `alert_emails` |
+
 The bundle's resources are in [`databricks/resources/`](../databricks/resources/), its environments in
 [`databricks/databricks.yml`](../databricks/databricks.yml): `dev` (`freshcart_dev`), `qa` (`freshcart_qa`) and
 `prod` (`freshcart`, refreshed nightly at 05:00 UTC), the same catalogs as the Genie bundle.
@@ -109,6 +111,25 @@ settings, SQL expressions, example queries, general instructions and benchmarks)
 version history and rollback are explained in
 [`notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb`](../notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb)
 and automated by the `genie-*` workflows in `.github/workflows/`.
+
+## From dev to production
+
+[`notebooks/FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub.ipynb`](../notebooks/FreshCart_CICD_Dev_to_Prod_with_DAB_and_GitHub.ipynb)
+turns the hand-built dev environment into a governed release process. It explains the architecture, sets up one
+service principal per environment and the GitHub repository (environments, secrets or OIDC, prod approvers, branch
+protection) through their APIs, hands dev over to CI/CD, then ships a real change from a pull request to prod and
+exercises version history, Genie UI sync, drift protection, rollback and monitoring. Every change is printed first
+and made only with `apply_changes = yes`.
+
+The workflows in `.github/workflows/`:
+
+| Workflow | When | What |
+|---|---|---|
+| `demo` | every push and pull request | the local pipeline, all tests (both bundles and both notebooks offline), docs up to date |
+| `genie-ci` | pull requests touching the bundles | space validation, every SQL of the space, `bundle validate` for every target of both bundles, the change list |
+| `genie-release` | merge to `main` | per environment: data bundle (deploy, refresh, health checks), then Genie bundle (drift check, deploy); qa runs the benchmark gate; prod waits for approval, smoke-tests and is tagged `genie-prod-*` |
+| `genie-rollback` | by hand | restores a tag or commit to one environment: the Genie space, the Genie bundle, the data bundle or everything |
+| `genie-dev-sync` | hourly | exports the dev Genie space into a tagged commit and a pull request |
 
 ## Keeping local and Databricks in step
 

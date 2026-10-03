@@ -20,6 +20,7 @@ databricks bundle run freshcart_refresh -t dev
 | `gold/` | `00_create_gold_tables.sql` (generated from `contracts/gold/`), `01_load_gold.sql` (MERGE loads) |
 | `governance/` | row-filter and mask functions, row filters, grants |
 | `semantic/` | `02_metric_views.sql` (generated from `semantic/*.yaml`), like-for-like trusted function |
+| `monitoring/` | data health checks run after every refresh by `src/monitor.py`; history in `<catalog>.monitoring.health_checks` |
 
 The local SQLite pipeline in `pipeline/` is the tested reference; `tests/test_data_bundle.py` and
 `tests/test_databricks_notebook.py` check this bundle offline.

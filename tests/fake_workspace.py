@@ -41,6 +41,8 @@ class _State:
         self.scim: dict[str, dict[str, dict]] = {"Groups": {}, "ServicePrincipals": {}}
         self.account_groups: dict[str, dict] = {}       # identity API: groups of the account
         self.identity_api = True                        # False: the workspace has no identity API (404)
+        self.secret_scopes: dict[str, dict[str, str]] = {}
+        self.sp_secrets: dict[str, list[str]] = {}
         self.host = ""
         self.eval_runs: dict[str, dict] = {}
         self.messages: dict[str, dict] = {}
@@ -137,6 +139,13 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._scim(method, p, q, body)
             if p.startswith("/api/2.0/identity/"):
                 return self._identity(method, p, body)
+            if p.startswith("/api/2.0/secrets/"):
+                return self._secrets(p, body)
+            if p.startswith("/api/2.0/accounts/servicePrincipals/") and p.endswith("/credentials/secrets"):
+                sp_id = p.split("/")[5]
+                secret = "dose" + uuid.uuid4().hex
+                st.sp_secrets.setdefault(sp_id, []).append(secret)
+                return self._send(200, {"id": uuid.uuid4().hex, "secret": secret, "status": "ACTIVE"})
             if p == "/api/2.1/unity-catalog/current-metastore-assignment":
                 return self._send(200, {"metastore_id": "11111111-2222-3333-4444-555555555555",
                                         "workspace_id": 1234567890123456, "default_catalog_name": "main"})
@@ -312,6 +321,19 @@ class _Handler(BaseHTTPRequestHandler):
             run["view"]["status"] = {"state": "TERMINATED", "termination_details": {
                 "code": "SUCCESS" if ok else "RUN_EXECUTION_ERROR", "type": "SUCCESS" if ok else "CLIENT_ERROR"}}
 
+    # ------------------------------------------------------------------------------- secrets
+    def _secrets(self, p, body):
+        st = self.state
+        if p.endswith("/scopes/list"):
+            return self._send(200, {"scopes": [{"name": n} for n in st.secret_scopes]})
+        if p.endswith("/scopes/create"):
+            st.secret_scopes.setdefault(body["scope"], {})
+            return self._send(200, {})
+        if p.endswith("/secrets/put"):
+            st.secret_scopes.setdefault(body["scope"], {})[body["key"]] = body.get("string_value", "")
+            return self._send(200, {})
+        return self._send(200, {})
+
     # --------------------------------------------- identity API (account groups, through the workspace)
     def _identity(self, method, p, body):
         st = self.state
@@ -419,6 +441,9 @@ class _Handler(BaseHTTPRequestHandler):
         if sid not in st.spaces:
             return self._missing(f"Genie space {sid} does not exist")
         space = json.loads(st.spaces[sid]["serialized_space"] or "{}")
+        if p.endswith("/eval-runs") and method == "GET":
+            return self._send(200, {"eval_runs": [self._run_view(rid, "DONE") for rid, r in st.eval_runs.items()
+                                                  if r["space_id"] == sid]})
         if p.endswith("/eval-runs") and method == "POST":
             results = []
             for b in (space.get("benchmarks") or {}).get("questions", []):
