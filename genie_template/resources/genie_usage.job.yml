@@ -1,0 +1,48 @@
+# Usage of the Genie space: every question asked in the last usage_lookback_hours, with its status, error,
+# whether Genie answered with SQL, and the user's feedback, merged into
+# <catalog>.<monitoring_schema>.genie_usage_messages (one row per message; re-runs update, never duplicate).
+# The dashboard and the SQL alerts read it. In prod it runs on its own (schedule in databricks.yml).
+#
+#   databricks bundle run genie_usage -t prod
+resources:
+  jobs:
+    genie_usage:
+      name: ${var.space_title} · usage${var.title_suffix}
+      description: >-
+        Collects the conversations of the Genie space ${var.space_title} for monitoring (bundle ${bundle.name}).
+        Maintained by ${var.technical_owner}.
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      email_notifications:
+        on_failure: ${var.alert_emails}
+      parameters:
+        - name: space_id
+          default: ${resources.genie_spaces.genie_space.id}
+        - name: lookback_hours
+          default: ${var.usage_lookback_hours}
+        - name: record_to
+          default: ${var.catalog}.${var.monitoring_schema}
+        - name: version
+          default: ${bundle.git.commit}
+      tasks:
+        - task_key: genie_usage
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/genie_usage.py
+            parameters:
+              - --space-id
+              - "{{job.parameters.space_id}}"
+              - --lookback-hours
+              - "{{job.parameters.lookback_hours}}"
+              - --record-to
+              - "{{job.parameters.record_to}}"
+              - --target
+              - ${bundle.target}
+              - --version
+              - "{{job.parameters.version}}"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - databricks-sdk>=0.145.0

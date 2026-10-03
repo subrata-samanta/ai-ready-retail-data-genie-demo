@@ -18,15 +18,15 @@
 # MAGIC | Part | What it does | Changes something? |
 # MAGIC |---|---|---|
 # MAGIC | A | Architecture, folder structure, where every setting lives | no |
-# MAGIC | B | One-time setup: groups, service principals, catalogs and grants; the GitHub repository (environments, approvals, secrets, branch and tag protection) | yes |
+# MAGIC | B | One-time setup: groups, service principals, catalogs, monitoring tables and grants; the GitHub repository (environments, approvals, secrets, branch and tag protection) | yes |
 # MAGIC | C | The first version of your space: import it from the Genie UI or keep the example; check every SQL against dev; try it in your sandbox | yes |
 # MAGIC | D | Ship it: branch → pull request → checks → merge → release dev → qa (gate) → approval → prod | yes |
 # MAGIC | E | Version control: releases, tags, what is live where, compare versions | no |
 # MAGIC | F | Edits made in the dev Genie UI become versions in git | yes |
 # MAGIC | G | Drift protection: an edit made in prod blocks the release | yes |
 # MAGIC | H | Roll back prod | yes |
-# MAGIC | I | Monitoring: quality history, wrong answers, table health, usage, jobs, deployments, alerts | no |
-# MAGIC | J | Runbook and the checklist for the next project | no |
+# MAGIC | I | Post-production monitoring: the dashboard, SQL alerts, quality history, wrong answers, table health, usage and feedback, jobs, deployments | no |
+# MAGIC | J | Production readiness review, runbook, and the checklist for the next project | no |
 # MAGIC
 # MAGIC **Before you start**
 # MAGIC * A Databricks workspace with Unity Catalog and a SQL warehouse; you are a workspace admin and may create catalogs
@@ -50,7 +50,8 @@
 # MAGIC                   +-------------------------------------------------------+
 # MAGIC  developer -----> | feature branch --> pull request                       |
 # MAGIC  (Git folder,     |                      | genie-ci: tests, space valid,  |
-# MAGIC   sandbox target) |                      |   change list, bundle plan     |
+# MAGIC   sandbox target) |                      |   SQL on dev data, readiness,  |
+# MAGIC                   |                      |   change list, bundle plan     |
 # MAGIC                   |                      | review + merge                 |
 # MAGIC                   |                      v                                |    one service principal
 # MAGIC                   | main --push--> genie-release                          |    per environment
@@ -60,8 +61,9 @@
 # MAGIC                   |                         quality job (health+benchmarks), smoke
 # MAGIC  approver ------> |                   [approval: environment prod]        |
 # MAGIC                   |                 4 prod  drift gate, deploy, smoke    -|-->  <catalog prod>        space
-# MAGIC                   |                         tag genie-prod-<time>-<sha>   |     nightly quality job ->
-# MAGIC                   |                         + GitHub release (notes)      |     <catalog>.<monitoring>.genie_*
+# MAGIC                   |                         tag genie-prod-<time>-<sha>   |     nightly quality + usage jobs
+# MAGIC                   |                         + GitHub release (notes)      |     -> <catalog>.<monitoring>.genie_*
+# MAGIC                   |                                                       |     -> dashboard, SQL alerts, e-mails
 # MAGIC                   |                                                       |
 # MAGIC  Genie UI edit -> | genie-dev-sync (hourly): dev space -> PR + snapshot tag|
 # MAGIC  (dev)            | genie-rollback (by hand): any tag / commit -> any env |
@@ -78,27 +80,42 @@
 # MAGIC ├── space/
 # MAGIC │   └── genie_space.yml         ★ the space's content: tables, instructions, example SQL, snippets, benchmarks
 # MAGIC │                                 (written ${var.catalog}.${var.schema}.<table>: one file for every environment)
-# MAGIC ├── databricks.yml                bundle wiring: includes, targets sandbox/dev/qa/prod, permissions, prod schedule
+# MAGIC ├── databricks.yml                bundle wiring: includes, targets sandbox/dev/qa/prod, permissions, prod schedules,
+# MAGIC │                                 prod space protected from deletion
 # MAGIC ├── resources/
-# MAGIC │   ├── genie_space.yml           the Genie space resource (title, warehouse, CAN_RUN for users)
-# MAGIC │   └── genie_quality.job.yml     the quality job: health checks + benchmarks (gate), smoke test, nightly monitor
-# MAGIC ├── src/
-# MAGIC │   └── genie_quality.py          the job's code (runs in Databricks; records results in Delta tables)
-# MAGIC ├── scripts/                      run by CI and by you
+# MAGIC │   ├── genie_space.yml               the Genie space (title, warehouse, CAN_RUN for users)
+# MAGIC │   ├── genie_quality.job.yml         quality job: health checks + benchmarks (gate), smoke test; nightly in prod
+# MAGIC │   ├── genie_usage.job.yml           usage job: questions, failures, feedback; nightly in prod
+# MAGIC │   ├── genie_monitoring.dashboard.yml  AI/BI dashboard: quality, data health, usage
+# MAGIC │   └── genie_alerts.yml              SQL alerts: accuracy below the gate, monitoring stale, failing answers
+# MAGIC ├── src/                          runs in Databricks
+# MAGIC │   ├── genie_quality.py          the quality job (records genie_quality_runs, _results, genie_table_health)
+# MAGIC │   ├── genie_usage.py            the usage job (merges genie_usage_messages)
+# MAGIC │   └── genie_monitoring.lvdash.json   the dashboard's definition
+# MAGIC ├── scripts/                      run by CI and by you (`make help` lists them)
 # MAGIC │   ├── genie_tools.py            config + space library (load, render, neutralise, diff, validate, hash)
 # MAGIC │   ├── validate_space.py         static checks, canonical form, change list, release notes
+# MAGIC │   ├── check_sql.py              every example and benchmark SQL on an environment's data
+# MAGIC │   ├── readiness.py              production readiness review (MUST / SHOULD checks)
 # MAGIC │   ├── check_drift.py            drift gate + backup, from `bundle plan -o json`
 # MAGIC │   ├── sync_from_workspace.py    dev UI edits -> git; import an existing space
+# MAGIC │   ├── quality_report.py         the quality job's output in the GitHub run summary (for the approver)
+# MAGIC │   ├── space_url.py              link to the deployed space (GitHub environment URL)
 # MAGIC │   └── build_notebooks.py        notebooks/*_source.py -> .ipynb
 # MAGIC ├── tests/                        tests of your project (no workspace needed): python tests/run_tests.py
 # MAGIC ├── notebooks/
 # MAGIC │   ├── Genie_Project_Template_source.py   this notebook (Databricks source)
 # MAGIC │   └── Genie_Project_Template.ipynb       the same, for reading on GitHub
-# MAGIC ├── .github/workflows/
-# MAGIC │   ├── genie-ci.yml              pull requests: tests, validation, change list, bundle plan (dev)
-# MAGIC │   ├── genie-release.yml         main -> dev -> qa -> approval -> prod, tag + GitHub release
-# MAGIC │   ├── genie-dev-sync.yml        hourly: dev Genie UI -> pull request + snapshot tag
-# MAGIC │   └── genie-rollback.yml        by hand: any version -> any environment
+# MAGIC ├── docs/OPERATIONS.md            operating model: roles, release, rollback, monitoring, runbook, go-live checklist
+# MAGIC ├── .github/
+# MAGIC │   ├── workflows/
+# MAGIC │   │   ├── genie-ci.yml          pull requests: tests, validation, SQL on dev data, readiness, change list, plan
+# MAGIC │   │   ├── genie-release.yml     main -> dev -> qa -> approval -> prod, tag + GitHub release
+# MAGIC │   │   ├── genie-dev-sync.yml    hourly: dev Genie UI -> pull request + snapshot tag
+# MAGIC │   │   └── genie-rollback.yml    by hand: any version -> any environment
+# MAGIC │   ├── pull_request_template.md  the reviewer's checklist
+# MAGIC │   └── CODEOWNERS                who must review what (fill in your teams)
+# MAGIC ├── Makefile                      make check | fix | diff | sql | deploy | gate | sync | readiness ...
 # MAGIC ├── requirements-dev.txt
 # MAGIC └── README.md
 # MAGIC ```
@@ -115,7 +132,8 @@
 # MAGIC | **Gates before prod** | Pull request checks; in qa the health checks, the benchmark gate (`gate_min_accuracy`) and a smoke test; then a human approval. |
 # MAGIC | **Nothing is lost** | UI edits in dev are exported to git (snapshot tags). UI edits in qa/prod block the release (drift gate) instead of being overwritten. The live space is backed up before every deploy. |
 # MAGIC | **Every version can come back** | Each prod release is a tag and a GitHub release with notes; `genie-rollback` deploys any tag or commit. |
-# MAGIC | **You hear about problems first** | Nightly quality job in prod (health + benchmarks), results in Delta tables, failure e-mails, GitHub notifications. |
+# MAGIC | **You hear about problems first** | Nightly quality and usage jobs in prod, results in Delta tables, a dashboard, SQL alerts, failure e-mails, GitHub notifications. |
+# MAGIC | **Standard operations** | The same roles, release checklist, runbook and go-live checklist for every project: `docs/OPERATIONS.md`. |
 
 # COMMAND ----------
 
@@ -281,6 +299,7 @@ print(f"GitHub {REPO_NAME} as {user['login']} (admin); default branch {repo['def
 # MAGIC | Groups | `users_group`, `developers_group`, `deployers_group` | permissions are given to groups, never to people |
 # MAGIC | One service principal per environment | `<project>-deployer-dev`, `-qa`, `-prod` | each pipeline stage signs in as its own identity: a leaked qa credential cannot touch prod |
 # MAGIC | Catalogs and schemas | `catalog` per environment, `schema`, `monitoring_schema` | created once by you (CI never creates catalogs) |
+# MAGIC | Monitoring tables | `genie_quality_runs`, `genie_quality_results`, `genie_table_health`, `genie_usage_messages` | created empty now, so the dashboard and alerts work before the first job run |
 # MAGIC | Grants | deployer: read the space's data, own the monitoring schema; users: read the space's data | Genie answers with the asking user's own permissions |
 # MAGIC | Warehouse | `CAN_USE` for the deployers and the users | the space and the quality job run on it |
 # MAGIC
@@ -375,6 +394,9 @@ def warehouse_id(name: str) -> str:
 
 
 EXAMPLE_TABLES = ["customer", "orders", "nation", "region"]
+sys.path.insert(0, str(PROJECT_DIR / "src"))
+import genie_quality, genie_usage                # the jobs' code: the monitoring tables' definitions
+MONITORING_TABLES = {**genie_quality.TABLES, genie_usage.TABLE: genie_usage.DDL}
 DEPLOYERS, SECRETS = {}, {}                      # env -> service principal; env -> OAuth secret (memory only)
 for env in ENVIRONMENTS:
     c = CFG[env]
@@ -393,6 +415,8 @@ for env in ENVIRONMENTS:
         print(f"  [dry run] create service principal {name}, add it to {GROUPS['deployers']}")
     sql(f"CREATE CATALOG IF NOT EXISTS `{cat}`")
     sql(f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{mon}`")
+    for table, ddl in MONITORING_TABLES.items():
+        sql(f"CREATE TABLE IF NOT EXISTS `{cat}`.`{mon}`.`{table}` ({ddl})")
     if EXAMPLE_DATA:
         sql(f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{sch}`")
         for t in EXAMPLE_TABLES:
@@ -923,8 +947,42 @@ else:
 # MAGIC All tables are in `<catalog>.<monitoring_schema>` of each environment; every row has the `target` and the deployed
 # MAGIC git commit (`version`), so a drop in accuracy can be traced to the release that caused it.
 # MAGIC
-# MAGIC **Alerts.** Set `alert_emails` per environment in `genie.config.yml` (a pull request; the next release applies it).
-# MAGIC For a threshold alert, create a Databricks SQL alert on `genie_quality_runs` (for example `accuracy < 0.7`).
+# MAGIC Everything here is deployed by the bundle, so every project has the same monitoring:
+# MAGIC
+# MAGIC | Deployed | What | Where to set it |
+# MAGIC |---|---|---|
+# MAGIC | Job `<title> · quality` | health + benchmarks; nightly in prod; e-mails on failure or when it runs over an hour | `monitor_cron`, `alert_emails`, `max_data_age_hours` |
+# MAGIC | Job `<title> · usage` | every question, its status and feedback → `genie_usage_messages`; nightly in prod | `usage_lookback_hours` |
+# MAGIC | Dashboard `<title> · monitoring` | pages *Quality*, *Data health*, *Usage* | — |
+# MAGIC | SQL alert *accuracy below the gate* | the latest quality run failed | `alert_subscribers` |
+# MAGIC | SQL alert *monitoring stale* | no quality run for 26 hours | `alert_subscribers` |
+# MAGIC | SQL alert *failing answers* | more than `alert_max_failed_share` of the last day's questions failed or got a thumbs down | `alert_max_failed_share` |
+# MAGIC
+# MAGIC The alerts run where `alerts_pause_status` is `UNPAUSED` (prod). Change any of it in a pull request; the next
+# MAGIC release applies it.
+
+# COMMAND ----------
+
+# What the bundle deployed for monitoring, per environment: the dashboard and the SQL alerts
+dashboards = {d.display_name: d for d in w.lakeview.list()}
+alerts = list(w.alerts_v2.list_alerts())
+rows = []
+for env in ENVIRONMENTS:
+    title, suffix = CFG[env]["space_title"], CFG[env].get("title_suffix") or ""
+    d = dashboards.get(f"{title} · monitoring{suffix}")
+    rows.append({"environment": env, "item": "dashboard", "name": f"{title} · monitoring{suffix}",
+                 "state": "deployed" if d else "not deployed yet",
+                 "link": f"{HOST}/dashboardsv3/{d.dashboard_id}" if d else ""})
+    for a in alerts:
+        mine = a.display_name.startswith(title + " · ") and (a.display_name.endswith(suffix) if suffix
+                                                             else not a.display_name.endswith("]"))
+        if mine:
+            pause = a.schedule.pause_status if a.schedule else None
+            rows.append({"environment": env, "item": "SQL alert", "name": a.display_name,
+                         "state": str(getattr(pause, "value", pause) or ""), "link": f"{HOST}/sql/alerts-v2/{a.id}"})
+display(pd.DataFrame(rows))
+for r in rows:
+    print(f"{r['environment']:>5}  {r['item']:<9} {r['name']}: {r['state']}")
 
 # COMMAND ----------
 
@@ -956,7 +1014,16 @@ for env in ENVIRONMENTS:
 
 # COMMAND ----------
 
-# Benchmark trend (Genie's evaluation history) and usage (conversations) per environment
+# Usage: questions, failures and thumbs down (from the usage job), and the questions to review
+for env in ENVIRONMENTS:
+    used = monitoring(env, "genie_usage_messages", "WHERE created_at >= current_date() - INTERVAL 30 DAYS")
+    if used is not None and len(used):
+        print(f"{env}: {len(used)} question(s) in 30 days, {used['user_id'].nunique()} user(s), "
+              f"{(used['status'] != 'COMPLETED').mean():.0%} failed, {(used['feedback_rating'] == 'NEGATIVE').sum()} thumbs down")
+        display(used[(used["status"] != "COMPLETED") | (used["feedback_rating"] == "NEGATIVE")]
+                [["created_at", "question", "status", "error", "feedback_rating"]])
+
+# Benchmark trend (Genie's evaluation history) and live conversation counts per environment
 trend, usage = [], []
 for env in ENVIRONMENTS:
     sp = live_space(env)
@@ -999,7 +1066,7 @@ for title, query in {
 runs = []
 for job in w.jobs.list(limit=100):
     name = job.settings.name if job.settings else ""
-    if name.startswith(CFG["prod"]["space_title"]) and "quality" in name:
+    if name.startswith(CFG["prod"]["space_title"]) and ("quality" in name or "usage" in name):
         for r in w.jobs.list_runs(job_id=job.job_id, limit=5):
             s = r.state
             runs.append({"job": name, "started": pd.to_datetime(r.start_time, unit="ms"),
@@ -1016,7 +1083,32 @@ display(pd.DataFrame(recent))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Part J · Runbook
+# MAGIC # Part J · Production readiness review, runbook, next project
+# MAGIC
+# MAGIC ### J1 · Production readiness review
+# MAGIC
+# MAGIC `scripts/readiness.py` checks what a production Genie service needs. **MUST** checks block a release (genie-ci
+# MAGIC fails); **SHOULD** checks are the open items before go-live (owners named, alerts going to someone, enough
+# MAGIC benchmarks, freshness checked...). Every pull request shows the same review in its check summary.
+
+# COMMAND ----------
+
+import readiness
+results = readiness.checks()
+display(pd.DataFrame([{"level": lvl, "check": name, "status": "pass" if ok else "FAIL" if lvl == "MUST" else "to do",
+                       "to do": "" if ok else advice} for lvl, name, ok, advice in results]))
+must = [n for lvl, n, ok, _ in results if lvl == "MUST" and not ok]
+todo = [n for lvl, n, ok, _ in results if lvl == "SHOULD" and not ok]
+print(f"{'NOT READY' if must else 'ready' if not todo else 'ready, with open items'}: "
+      f"{len(must)} MUST failed, {len(todo)} SHOULD open")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### J2 · Runbook
+# MAGIC
+# MAGIC The full operating model (roles, the approver's checklist, versions, rollback, alerts, regular care, go-live and
+# MAGIC retirement) is in **`docs/OPERATIONS.md`**. The essentials:
 # MAGIC
 # MAGIC | Signal | Meaning | Do this |
 # MAGIC |---|---|---|
@@ -1026,6 +1118,8 @@ display(pd.DataFrame(recent))
 # MAGIC | Release stops in prod: **drift** | someone edited the prod space | as for qa |
 # MAGIC | Prod **smoke test** failed | Genie does not answer in prod | the release already restored the previous release's space; investigate in qa |
 # MAGIC | Nightly quality job failed (e-mail) | answers degraded or data stale on live data | `genie_quality_runs.reasons`; compare `version` with the last good run; roll back if a release caused it |
+# MAGIC | SQL alert *monitoring stale* | the nightly job did not run | Jobs UI → `<title> · quality`; fix (permissions, warehouse) and rerun |
+# MAGIC | SQL alert *failing answers* | users fail more than `alert_max_failed_share` | dashboard *Usage* → questions to review → new benchmarks and example SQL |
 # MAGIC | Wrong content released | a bad change reached prod | `genie-rollback` (`what = space`, `to = previous`), then revert on `main` |
 # MAGIC | Plan wants to **recreate** the space | a change that Genie cannot apply in place | users would lose conversations: avoid, or release with *allow_destroy* on purpose |
 # MAGIC
@@ -1035,10 +1129,12 @@ display(pd.DataFrame(recent))
 # MAGIC   and raise `gate_min_accuracy` when the space is consistently better.
 # MAGIC * Each release: read the release notes (GitHub release) and the qa quality results before approving prod.
 # MAGIC
-# MAGIC ## Checklist for the next Genie project
+# MAGIC ### J3 · Checklist for the next Genie project
 # MAGIC
 # MAGIC 1. New repository from the template; edit `genie.config.yml` (`# <- EDIT` lines).
 # MAGIC 2. Prototype the space in the dev Genie UI; set **import_space_id**; run this notebook with `apply_changes = no`, then `yes`.
 # MAGIC 3. Add benchmarks (at least `gate_min_graded`) with trusted SQL answers: they are the gate.
-# MAGIC 4. Set `alert_emails` for prod, and `max_data_age_hours` to your data's load frequency.
-# MAGIC 5. From then on: change by pull request or in the dev UI, release by merging, approve prod, watch part I.
+# MAGIC 4. Set the owners, `alert_emails` and `alert_subscribers` for prod, and `max_data_age_hours` to your data's load
+# MAGIC    frequency; run J1 until no SHOULD item is open.
+# MAGIC 5. From then on: change by pull request or in the dev UI, release by merging, approve prod (read the qa quality
+# MAGIC    report first), and watch the dashboard. Turn failed and thumbs-down questions into benchmarks.

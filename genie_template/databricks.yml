@@ -1,11 +1,12 @@
 # Bundle wiring of the Genie project template. You normally don't edit this file:
 #   project values         genie.config.yml       (name, space title, catalogs, groups, gate, monitoring)
 #   the space's content    space/genie_space.yml  (tables, instructions, example SQL, benchmarks)
-#   what is deployed       resources/             (the Genie space; the quality job)
+#   what is deployed       resources/             (the Genie space; quality and usage jobs; dashboard; SQL alerts)
 #
 #   databricks bundle validate -t <target>      check, and show every resolved value
 #   databricks bundle deploy   -t <target>      deploy (dev, qa and prod: only GitHub Actions does this)
 #   databricks bundle run genie_quality -t qa   benchmark gate (--params mode=smoke for the smoke test)
+#   databricks bundle run genie_usage -t prod   collect the latest conversations for monitoring
 #
 # Requires Databricks CLI 1.14+ (Genie spaces need the direct deployment engine).
 
@@ -26,6 +27,9 @@ sync:                                         # only the job's code is uploaded 
     - tests/**
     - notebooks/**
     - space/**
+    - docs/**
+    - .github/**
+    - Makefile
     - "*.md"
 
 targets:
@@ -65,9 +69,18 @@ targets:
       - level: CAN_VIEW
         group_name: ${var.developers_group}
     resources:
+      genie_spaces:
+        genie_space:
+          lifecycle:
+            prevent_destroy: true             # users' conversations live in the space: never delete it by accident
       jobs:
         genie_quality:
           schedule:                           # the nightly monitor: health checks and benchmarks on live data
+            quartz_cron_expression: ${var.monitor_cron}
+            timezone_id: ${var.monitor_timezone}
+            pause_status: UNPAUSED
+        genie_usage:
+          schedule:                           # collects yesterday's questions, failures and feedback
             quartz_cron_expression: ${var.monitor_cron}
             timezone_id: ${var.monitor_timezone}
             pause_status: UNPAUSED

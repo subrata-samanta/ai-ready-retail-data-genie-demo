@@ -147,8 +147,9 @@ The complete guide, which runs the real Databricks CLI end to end, is
 Starting another Genie project? [`genie_template/`](genie_template/) is the same approach as a reusable template for
 any Genie space. Everything project-specific is in one config file, `genie.config.yml`. The template also contains:
 - the space's content in `space/genie_space.yml`;
-- the bundle, with a quality and monitoring job whose results go to Delta tables;
-- four GitHub workflows: checks, release, dev UI sync and rollback;
+- the bundle, with quality and usage jobs whose results go to Delta tables, a monitoring dashboard and SQL alerts;
+- an operating model in `docs/OPERATIONS.md` (roles, release, rollback, monitoring, runbook, go-live checklist);
+- four GitHub workflows (checks, release, dev UI sync and rollback), and a production readiness review;
 - tests;
 - [`notebooks/Genie_Project_Template.ipynb`](genie_template/notebooks/Genie_Project_Template.ipynb), which sets up
   Databricks and GitHub, imports your prototype space and walks it from a pull request to prod. It also covers

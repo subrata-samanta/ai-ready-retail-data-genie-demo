@@ -1,0 +1,12 @@
+# The monitoring dashboard (AI/BI) of the Genie space: quality, data health and usage, from the tables in
+# <catalog>.<monitoring_schema> of each environment. Its queries name the tables without catalog and schema;
+# dataset_catalog and dataset_schema point them at this environment's. Permissions: those of the environment
+# (databricks.yml): the deployers manage it, developers view it.
+resources:
+  dashboards:
+    genie_monitoring:
+      display_name: ${var.space_title} · monitoring${var.title_suffix}
+      file_path: ../src/genie_monitoring.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.monitoring_schema}

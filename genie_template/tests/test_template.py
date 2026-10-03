@@ -195,7 +195,7 @@ def test_smoke_test_needs_sql():
 def test_workflows_refer_to_files_that_exist():
     for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         text = wf.read_text(encoding="utf-8")
-        for path in re.findall(r"python (scripts/\w+\.py)", text) + re.findall(r"(space/genie_space\.yml)", text):
+        for path in re.findall(r"python3? (scripts/\w+\.py)", text) + re.findall(r"(space/genie_space\.yml)", text):
             assert (ROOT / path).exists(), f"{wf.name} refers to {path}, which does not exist"
         for job in re.findall(r"bundle run (\w+)", text):
             assert any(f"    {job}:" in f.read_text() for f in (ROOT / "resources").glob("*.yml")), (wf.name, job)
@@ -204,3 +204,111 @@ def test_workflows_refer_to_files_that_exist():
 def test_notebooks_are_up_to_date():
     import build_notebooks
     assert build_notebooks.main(["--check"]) == 0, "run: python scripts/build_notebooks.py"
+
+
+# ------------------------------------------------------------------------------- usage job
+class _UsageGenie:
+    """Two conversations: a recent one (a good answer, a failure, a thumbs down) and one older than the window."""
+
+    def __init__(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        ms = lambda d: int(d.timestamp() * 1000)                                   # noqa: E731
+        self.recent, self.old = ms(now - timedelta(hours=2)), ms(now - timedelta(days=10))
+
+    def list_conversations(self, space_id, include_all=None, page_size=None, page_token=None):
+        if page_token is None:
+            return SimpleNamespace(conversations=[SimpleNamespace(conversation_id="c1", created_timestamp=self.recent)],
+                                   next_page_token="p2")
+        return SimpleNamespace(conversations=[SimpleNamespace(conversation_id="c0", created_timestamp=self.old)],
+                               next_page_token=None)
+
+    def list_conversation_messages(self, space_id, conversation_id, page_size=None, page_token=None):
+        assert conversation_id == "c1", "conversations older than the window are not read"
+        sql = [SimpleNamespace(query=SimpleNamespace(query="SELECT 1"))]
+        msg = lambda i, status, att, rating=None, err=None: SimpleNamespace(               # noqa: E731
+            message_id=f"m{i}", id=None, content=f"question {i}", status=status, created_timestamp=self.recent,
+            user_id=7, attachments=att, error=err, feedback=SimpleNamespace(rating=rating) if rating else None)
+        return SimpleNamespace(next_page_token=None, messages=[
+            msg(1, "COMPLETED", sql), msg(2, "FAILED", [], err=SimpleNamespace(type="QUERY_EXECUTION", error="boom")),
+            msg(3, "COMPLETED", sql, rating="NEGATIVE")])
+
+
+class _MergeSpark(_SparkMock):
+    def createDataFrame(self, rows, ddl):
+        spark = self
+        return SimpleNamespace(createOrReplaceTempView=lambda name: spark.written.setdefault(name, []).extend(rows))
+
+
+def test_usage_job_collects_the_window_and_merges_by_message():
+    import genie_usage as U
+    spark = _MergeSpark()
+    argv = ["--space-id", "s1", "--lookback-hours", "48", "--record-to", "cat.mon", "--target", "prod"]
+    assert U.main(argv, client=SimpleNamespace(genie=_UsageGenie()), spark=spark) == 0
+    rows = spark.written["genie_usage_batch"]
+    assert len(rows) == 3
+    cols = [c.split()[0] for c in U.DDL.split(", ")]
+    by_id = {r[cols.index("message_id")]: dict(zip(cols, r)) for r in rows}
+    assert by_id["m2"]["status"] == "FAILED" and by_id["m2"]["error"] == "QUERY_EXECUTION: boom"
+    assert by_id["m3"]["feedback_rating"] == "NEGATIVE" and by_id["m1"]["has_sql"] is True
+    assert all(r[cols.index("target")] == "prod" for r in rows)
+    assert any(s.startswith("MERGE INTO `cat`.`mon`.`genie_usage_messages`") for s in spark.statements)
+    assert U.summarise(list(by_id.values()))["to_review"] == ["question 2", "question 3"]
+
+
+def test_monitoring_resources_read_the_tables_the_jobs_write():
+    import genie_quality as Q
+    import genie_usage as U
+    written = set(Q.TABLES) | {U.TABLE}
+    dash = json.loads((ROOT / "src" / "genie_monitoring.lvdash.json").read_text())
+    sql = {ds["name"]: "".join(ds["queryLines"]) for ds in dash["datasets"]}
+    read = {t for q in sql.values() for t in re.findall(r"FROM\s+(\w+)", q)}
+    for w in [item["widget"] for page in dash["pages"] for item in page["layout"]]:
+        for q in w.get("queries", []):
+            for f in q["query"]["fields"]:                 # every field a widget shows is a column of its dataset
+                assert re.search(rf"\b{f['name']}\b", sql[q["query"]["datasetName"]]), (w["name"], f["name"])
+    assert read <= written, f"the dashboard reads tables no job writes: {sorted(read - written)}"
+    alerts = (ROOT / "resources" / "genie_alerts.yml").read_text()
+    assert set(re.findall(r"\$\{var\.monitoring_schema\}\.(\w+)", alerts)) <= written
+    ddl = {t: {c.split()[0] for c in d.split(", ")} for t, d in {**Q.TABLES, U.TABLE: U.DDL}.items()}
+    for col in ("passed", "accuracy", "checked_at", "mode", "target"):
+        assert col in ddl["genie_quality_runs"]
+    for col in ("status", "feedback_rating", "created_at", "target"):
+        assert col in ddl["genie_usage_messages"]
+
+
+# ------------------------------------------------------------------------- readiness and SQL check
+def test_production_readiness_must_checks_pass():
+    import readiness
+    failed = [(name, advice) for level, name, ok, advice in readiness.checks() if level == "MUST" and not ok]
+    assert not failed, f"the project is not releasable: {failed}"
+
+
+class _Statements:
+    """Statement execution: fails for SQL containing 'broken'; records the parameters it was given."""
+
+    def __init__(self):
+        self.calls = []
+
+    def execute_statement(self, statement, warehouse_id, row_limit=None, wait_timeout=None, parameters=None):
+        self.calls.append((statement, parameters))
+        ok = "broken" not in statement
+        return SimpleNamespace(statement_id="st1", status=SimpleNamespace(
+            state="SUCCEEDED" if ok else "FAILED", error=None if ok else SimpleNamespace(message="TABLE_OR_VIEW_NOT_FOUND")))
+
+
+def test_check_sql_runs_every_query_with_parameter_defaults():
+    import check_sql
+    space = T.for_target(T.load_space(), "dev")
+    ex = space.setdefault("instructions", {}).setdefault("example_question_sqls", [])
+    ex.append({"id": T.new_id("p1"), "question": ["with a default"], "sql": ["SELECT :year AS y"],
+               "parameters": [{"name": "year", "type_hint": "INTEGER", "default_value": {"values": ["1995"]}}]})
+    ex.append({"id": T.new_id("p2"), "question": ["no default"], "sql": ["SELECT :who AS w"], "parameters": [{"name": "who"}]})
+    ex.append({"id": T.new_id("p3"), "question": ["broken"], "sql": ["SELECT * FROM broken"]})
+    st = _Statements()
+    results = check_sql.run(SimpleNamespace(statement_execution=st), "wh", check_sql.statements(space))
+    by = {r["label"].split(": ", 1)[1]: r["result"] for r in results}
+    assert by["with a default"] == "ok" and by["no default"].startswith("skipped") and by["broken"].startswith("FAILED")
+    sent = dict((s, p) for s, p in st.calls)
+    assert [(p.name, p.value, p.type) for p in sent["SELECT :year AS y"]] == [("year", "1995", "INTEGER")]
+    assert len(st.calls) == len(T.sql_statements(space)) - 1          # all but the one without defaults

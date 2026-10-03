@@ -9,13 +9,15 @@
 #      databricks bundle validate -t <sandbox | dev | qa | prod>
 #  checks it and prints every resolved value. Lines marked  # <- EDIT  are the ones to change.
 #
-#    1  project          the bundle's name (also used for service principals and job names)
+#    1  project          the bundle's name (also used for service principals and job names), owners
 #    2  space            title and description of the Genie space
 #    3  data             catalog per environment, schema, SQL warehouse
 #    4  access           the groups that use, build and deploy the space
 #    5  quality gate     benchmark accuracy that qa must reach before prod; the smoke-test question
-#    6  monitoring       where results are recorded, freshness limit, nightly schedule, alert e-mails
+#    6  monitoring       result tables, freshness limit, nightly schedule, usage, alert e-mails and SQL alerts
 #    7  environments     per-environment values: workspace, catalog, title suffix, alerts
+#
+#  Check it any time with:  python scripts/readiness.py   (the production readiness review)
 #
 #  The space's content (tables, instructions, example SQL, benchmarks) is in space/genie_space.yml.
 # =====================================================================================================
@@ -25,6 +27,16 @@ bundle:
   name: acme-orders-genie                       # <- EDIT: lowercase letters, digits and dashes
 
 variables:
+  business_owner:
+    description: Who decides what the space should answer (named in job descriptions, the dashboard, the runbook)
+    default: Acme Sales Operations             # <- EDIT
+  technical_owner:
+    description: Team that maintains the space and is told when it breaks
+    default: Acme Data Platform                # <- EDIT
+  support_contact:
+    description: Where users ask for help (channel, e-mail or ticket queue)
+    default: "#acme-genie-support"             # <- EDIT
+
   # ---- 2. The Genie space ---------------------------------------------------------------------------
   space_title:
     description: Title business users see; each environment appends title_suffix (section 7)
@@ -89,14 +101,28 @@ variables:
     description: Fail the health check when a table of the space was last changed longer ago; 0 = don't check
     default: "0"                                # <- EDIT (for example 26 for a daily load)
   monitor_cron:
-    description: When the quality job runs on its own in prod (Quartz cron syntax)
+    description: When the quality and usage jobs run on their own in prod (Quartz cron syntax)
     default: "0 0 6 * * ?"                      # <- EDIT: 06:00 every day
   monitor_timezone:
     default: UTC
+  usage_lookback_hours:
+    description: The usage job collects the conversations of this many past hours (more than its schedule's interval)
+    default: "48"
   alert_emails:
-    description: Who is e-mailed when the quality job fails; set per environment in section 7
+    description: Who is e-mailed when the quality or usage job fails or runs too long; set per environment in section 7
     type: complex
     default: []
+  alert_subscribers:
+    description: Who the SQL alerts (accuracy dropped, monitoring stale, failing answers) notify, as a list of
+      {user_email} of workspace users; set per environment in section 7
+    type: complex
+    default: []
+  alerts_pause_status:
+    description: PAUSED or UNPAUSED; the SQL alerts run only where UNPAUSED (prod, section 7)
+    default: PAUSED
+  alert_max_failed_share:
+    description: Alert when more than this share of yesterday's questions failed or got a thumbs down (0.2 = 20%)
+    default: "0.2"
 
 # ---- 7. Environments ----------------------------------------------------------------------------------
 #  sandbox: each developer's own copy ("[dev <name>] ..."), deployed by hand.
@@ -126,4 +152,6 @@ targets:
     #   host: https://<prod-workspace>.cloud.databricks.com
     variables:
       catalog: acme_prod                        # <- EDIT
+      alerts_pause_status: UNPAUSED
       alert_emails: []                          # <- EDIT, for example [genie-team@acme.example]
+      alert_subscribers: []                     # <- EDIT, for example [{user_email: dana@acme.example}]

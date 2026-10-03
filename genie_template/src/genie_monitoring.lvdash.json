@@ -1,0 +1,927 @@
+{
+  "datasets": [
+    {
+      "name": "quality_runs",
+      "displayName": "Quality runs",
+      "queryLines": [
+        "SELECT checked_at, target, version, mode, passed, accuracy, num_correct, graded, num_bad,\n",
+        "       num_needs_review, unhealthy_checks, reasons\n",
+        "FROM genie_quality_runs\n",
+        "WHERE checked_at >= current_date() - INTERVAL 90 DAYS"
+      ]
+    },
+    {
+      "name": "latest_gate",
+      "displayName": "Latest gate",
+      "queryLines": [
+        "SELECT accuracy, num_correct, graded, num_bad, unhealthy_checks, checked_at, version\n",
+        "FROM genie_quality_runs\n",
+        "WHERE mode = 'gate'\n",
+        "ORDER BY checked_at DESC\n",
+        "LIMIT 1"
+      ]
+    },
+    {
+      "name": "wrong_answers",
+      "displayName": "Wrong answers in the latest run",
+      "queryLines": [
+        "SELECT checked_at, target, version, question, reason, genie_sql, expected_sql\n",
+        "FROM genie_quality_results\n",
+        "WHERE assessment = 'BAD'\n",
+        "QUALIFY dense_rank() OVER (PARTITION BY target ORDER BY checked_at DESC) = 1"
+      ]
+    },
+    {
+      "name": "table_health",
+      "displayName": "Table health (latest)",
+      "queryLines": [
+        "SELECT checked_at, target, table_name, check_name, passed, observed, detail\n",
+        "FROM genie_table_health\n",
+        "QUALIFY dense_rank() OVER (PARTITION BY target ORDER BY checked_at DESC) = 1"
+      ]
+    },
+    {
+      "name": "usage_daily",
+      "displayName": "Usage per day",
+      "queryLines": [
+        "SELECT date_trunc('DAY', created_at) AS day, target,\n",
+        "       COUNT(*) AS questions,\n",
+        "       COUNT(DISTINCT user_id) AS users,\n",
+        "       AVG(CASE WHEN status <> 'COMPLETED' THEN 1.0 ELSE 0.0 END) AS failed_share,\n",
+        "       SUM(CASE WHEN feedback_rating = 'NEGATIVE' THEN 1 ELSE 0 END) AS thumbs_down\n",
+        "FROM genie_usage_messages\n",
+        "WHERE created_at >= current_date() - INTERVAL 90 DAYS\n",
+        "GROUP BY ALL"
+      ]
+    },
+    {
+      "name": "usage_7d",
+      "displayName": "Usage, last 7 days",
+      "queryLines": [
+        "SELECT COUNT(*) AS questions, COUNT(DISTINCT user_id) AS users,\n",
+        "       AVG(CASE WHEN status <> 'COMPLETED' OR feedback_rating = 'NEGATIVE' THEN 1.0 ELSE 0.0 END) AS failed_share\n",
+        "FROM genie_usage_messages\n",
+        "WHERE created_at >= current_timestamp() - INTERVAL 7 DAYS"
+      ]
+    },
+    {
+      "name": "to_review",
+      "displayName": "Questions to review",
+      "queryLines": [
+        "SELECT created_at, target, question, status, error, feedback_rating, genie_sql\n",
+        "FROM genie_usage_messages\n",
+        "WHERE (status <> 'COMPLETED' OR feedback_rating = 'NEGATIVE')\n",
+        "  AND created_at >= current_date() - INTERVAL 30 DAYS\n",
+        "ORDER BY created_at DESC\n",
+        "LIMIT 200"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "quality",
+      "displayName": "Quality",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "quality_intro",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Is Genie still answering correctly?\n",
+                "Benchmarks run in qa before every release (the gate) and every night in prod. Each run records the git commit that was deployed (`version`)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "latest_accuracy",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_gate",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "accuracy",
+                      "expression": "`accuracy`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "accuracy",
+                  "displayName": "Latest accuracy"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Latest accuracy"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "latest_wrong",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_gate",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "num_bad",
+                      "expression": "`num_bad`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "num_bad",
+                  "displayName": "Wrong answers"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Wrong answers"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "latest_unhealthy",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "latest_gate",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "unhealthy_checks",
+                      "expression": "`unhealthy_checks`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "unhealthy_checks",
+                  "displayName": "Unhealthy table checks"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unhealthy table checks"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "accuracy_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "quality_runs",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "checked_at",
+                      "expression": "`checked_at`"
+                    },
+                    {
+                      "name": "accuracy",
+                      "expression": "`accuracy`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "checked_at",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "checked_at"
+                },
+                "y": {
+                  "fieldName": "accuracy",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "accuracy"
+                },
+                "color": {
+                  "fieldName": "target",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "environment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Benchmark accuracy over time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "wrong_answers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "wrong_answers",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    },
+                    {
+                      "name": "question",
+                      "expression": "`question`"
+                    },
+                    {
+                      "name": "reason",
+                      "expression": "`reason`"
+                    },
+                    {
+                      "name": "genie_sql",
+                      "expression": "`genie_sql`"
+                    },
+                    {
+                      "name": "expected_sql",
+                      "expression": "`expected_sql`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "target",
+                    "displayName": "target"
+                  },
+                  {
+                    "fieldName": "question",
+                    "displayName": "question"
+                  },
+                  {
+                    "fieldName": "reason",
+                    "displayName": "reason"
+                  },
+                  {
+                    "fieldName": "genie_sql",
+                    "displayName": "genie_sql"
+                  },
+                  {
+                    "fieldName": "expected_sql",
+                    "displayName": "expected_sql"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Wrong answers in the latest run",
+                "showDescription": true,
+                "description": "Fix by adding context: instructions, example SQL, column descriptions; or clarify the benchmark."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "runs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "quality_runs",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "checked_at",
+                      "expression": "`checked_at`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    },
+                    {
+                      "name": "mode",
+                      "expression": "`mode`"
+                    },
+                    {
+                      "name": "passed",
+                      "expression": "`passed`"
+                    },
+                    {
+                      "name": "accuracy",
+                      "expression": "`accuracy`"
+                    },
+                    {
+                      "name": "num_bad",
+                      "expression": "`num_bad`"
+                    },
+                    {
+                      "name": "version",
+                      "expression": "`version`"
+                    },
+                    {
+                      "name": "reasons",
+                      "expression": "`reasons`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "checked_at",
+                    "displayName": "checked_at"
+                  },
+                  {
+                    "fieldName": "target",
+                    "displayName": "target"
+                  },
+                  {
+                    "fieldName": "mode",
+                    "displayName": "mode"
+                  },
+                  {
+                    "fieldName": "passed",
+                    "displayName": "passed"
+                  },
+                  {
+                    "fieldName": "accuracy",
+                    "displayName": "accuracy"
+                  },
+                  {
+                    "fieldName": "num_bad",
+                    "displayName": "num_bad"
+                  },
+                  {
+                    "fieldName": "version",
+                    "displayName": "version"
+                  },
+                  {
+                    "fieldName": "reasons",
+                    "displayName": "reasons"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Quality runs (90 days)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "health",
+      "displayName": "Data health",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "health_intro",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Is the data behind the space there and fresh?\n",
+                "Every table of the space: readable, not empty, and changed within max_data_age_hours."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "table_health",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "table_health",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "passed",
+                      "expression": "`passed`"
+                    },
+                    {
+                      "name": "observed",
+                      "expression": "`observed`"
+                    },
+                    {
+                      "name": "detail",
+                      "expression": "`detail`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "target",
+                    "displayName": "target"
+                  },
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "table_name"
+                  },
+                  {
+                    "fieldName": "check_name",
+                    "displayName": "check_name"
+                  },
+                  {
+                    "fieldName": "passed",
+                    "displayName": "passed"
+                  },
+                  {
+                    "fieldName": "observed",
+                    "displayName": "observed"
+                  },
+                  {
+                    "fieldName": "detail",
+                    "displayName": "detail"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Latest health checks"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 9
+          }
+        }
+      ]
+    },
+    {
+      "name": "usage",
+      "displayName": "Usage",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "usage_intro",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Who uses the space, and where does it fail them?\n",
+                "Failed questions and thumbs down are the best candidates for new benchmarks and examples."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "questions_7d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "usage_7d",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "questions",
+                      "expression": "`questions`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "questions",
+                  "displayName": "Questions, last 7 days"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Questions, last 7 days"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "users_7d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "usage_7d",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "users",
+                      "expression": "`users`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "users",
+                  "displayName": "Users, last 7 days"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Users, last 7 days"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "failed_7d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "usage_7d",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "failed_share",
+                      "expression": "`failed_share`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "failed_share",
+                  "displayName": "Failed or thumbs down"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Failed or thumbs down"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "questions_daily",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "usage_daily",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "questions",
+                      "expression": "`questions`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "day"
+                },
+                "y": {
+                  "fieldName": "questions",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "questions"
+                },
+                "color": {
+                  "fieldName": "target",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "environment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Questions per day"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "failed_daily",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "usage_daily",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "failed_share",
+                      "expression": "`failed_share`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "day"
+                },
+                "y": {
+                  "fieldName": "failed_share",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "failed_share"
+                },
+                "color": {
+                  "fieldName": "target",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "environment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Share of failed questions per day"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "to_review",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "to_review",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "created_at",
+                      "expression": "`created_at`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    },
+                    {
+                      "name": "question",
+                      "expression": "`question`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "error",
+                      "expression": "`error`"
+                    },
+                    {
+                      "name": "feedback_rating",
+                      "expression": "`feedback_rating`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "created_at",
+                    "displayName": "created_at"
+                  },
+                  {
+                    "fieldName": "target",
+                    "displayName": "target"
+                  },
+                  {
+                    "fieldName": "question",
+                    "displayName": "question"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "status"
+                  },
+                  {
+                    "fieldName": "error",
+                    "displayName": "error"
+                  },
+                  {
+                    "fieldName": "feedback_rating",
+                    "displayName": "feedback_rating"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Questions to review (30 days)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ]
+    }
+  ]
+}

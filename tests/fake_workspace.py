@@ -20,6 +20,7 @@ import json
 import socket
 import sys
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
@@ -27,6 +28,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 USER = {"id": "1001", "userName": "dana@freshcart.example", "displayName": "Dana Developer",
         "groups": [{"display": "users"}, {"display": "admins"}, {"display": "freshcart-genie-deployers"},
                    {"display": "freshcart-genie-developers"}]}
+
+
+RUNNABLE = {"genie_quality_gate.py", "genie_quality.py", "genie_usage.py"}   # job tasks the stand-in executes
 
 
 class _State:
@@ -45,6 +49,8 @@ class _State:
         self.sp_secrets: dict[str, list[str]] = {}
         self.host = ""
         self.eval_runs: dict[str, dict] = {}
+        self.dashboards: dict[str, dict] = {}            # AI/BI (Lakeview) dashboards
+        self.alerts: dict[str, dict] = {}                # SQL alerts (v2)
         self.messages: dict[str, dict] = {}
         self.requests: list[dict] = []
         self.lock = threading.Lock()
@@ -129,7 +135,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(200, self._space_view(sp, True))
             if p == "/api/2.0/genie/spaces" and method == "GET":
                 return self._send(200, {"spaces": [self._space_view(s, False) for s in st.spaces.values()]})
-            if "/eval-runs" in p or "/start-conversation" in p or "/conversations/" in p:
+            if "/eval-runs" in p or "/start-conversation" in p or "/conversations/" in p or p.endswith("/conversations"):
                 return self._genie_runtime(method, p, q, body)
             if p.startswith("/api/2.2/jobs/") or p.startswith("/api/2.1/jobs/"):
                 return self._jobs(method, p, q, body)
@@ -169,6 +175,12 @@ class _Handler(BaseHTTPRequestHandler):
                 if method == "DELETE":
                     st.spaces.pop(sid)
                     return self._send(200, {})
+
+            # ---- AI/BI dashboards and SQL alerts (stored; enough for bundle deploy, plan and destroy)
+            if p.startswith("/api/2.0/lakeview/dashboards"):
+                return self._dashboards(method, p, body, q)
+            if p.startswith("/api/2.0/alerts"):
+                return self._alerts(method, p, body)
 
             # ---- permissions (accepted and stored)
             if p.startswith("/api/2.0/permissions/"):
@@ -227,6 +239,62 @@ class _Handler(BaseHTTPRequestHandler):
                                                          "enable_serverless_compute": True, "state": "RUNNING"}]})
             return self._send(200, {})
 
+    # ------------------------------------------------------------- dashboards and alerts
+    def _dashboards(self, method, p, body, q=None):
+        st = self.state
+        parts = p[len("/api/2.0/lakeview/dashboards"):].strip("/").split("/")
+        did = parts[0] if parts[0] else None
+        if did is None and method == "POST":
+            did = uuid.uuid4().hex[:32]
+            d = {**body, **{k: v for k, v in (q or {}).items() if k.startswith("dataset_")},
+                 "dashboard_id": did, "etag": "1", "lifecycle_state": "ACTIVE",
+                 "path": f"{body.get('parent_path', '/Workspace')}/{body.get('display_name', did)}.lvdash.json",
+                 "create_time": "2026-01-01T00:00:00Z", "update_time": "2026-01-01T00:00:00Z"}
+            st.dashboards[did] = d
+            return self._send(200, d)
+        if did is None:
+            return self._send(200, {"dashboards": list(st.dashboards.values())})
+        d = st.dashboards.get(did)
+        if d is None:
+            return self._missing(f"dashboard {did} does not exist")
+        if len(parts) > 1 and parts[1] == "published":
+            if method == "DELETE":
+                d.pop("_published", None)
+                return self._send(200, {})
+            if method == "POST":
+                d["_published"] = {"display_name": d.get("display_name"), "warehouse_id": body.get("warehouse_id"),
+                                   "embed_credentials": body.get("embed_credentials", False),
+                                   "revision_create_time": "2026-01-01T00:00:00Z"}
+            return self._send(200, d.get("_published", {})) if d.get("_published") else self._missing("not published")
+        if method == "DELETE":
+            d["lifecycle_state"] = "TRASHED"
+            st.dashboards.pop(did)
+            return self._send(200, {})
+        if method == "PATCH":
+            d.update({k: v for k, v in body.items() if k != "dashboard_id"}, etag=str(int(d["etag"]) + 1))
+            d.update({k: v for k, v in (q or {}).items() if k.startswith("dataset_")})
+        return self._send(200, {k: v for k, v in d.items() if not k.startswith("_")})
+
+    def _alerts(self, method, p, body):
+        st = self.state
+        aid = p[len("/api/2.0/alerts"):].strip("/") or None
+        if aid is None and method == "POST":
+            aid = uuid.uuid4().hex[:32]
+            st.alerts[aid] = {**body, "id": aid, "lifecycle_state": "ACTIVE", "owner_user_name": USER["userName"],
+                              "create_time": "2026-01-01T00:00:00Z", "update_time": "2026-01-01T00:00:00Z"}
+            return self._send(200, st.alerts[aid])
+        if aid is None:
+            return self._send(200, {"alerts": list(st.alerts.values())})
+        a = st.alerts.get(aid)
+        if a is None:
+            return self._missing(f"alert {aid} does not exist")
+        if method == "DELETE":
+            st.alerts.pop(aid)
+            return self._send(200, {})
+        if method == "PATCH":
+            a.update({k: v for k, v in body.items() if k != "id"})
+        return self._send(200, a)
+
     # ------------------------------------------------------------------- jobs (deploy only)
     def _jobs(self, method, p, q, body):
         st = self.state
@@ -272,8 +340,8 @@ class _Handler(BaseHTTPRequestHandler):
         return self._send(200, {})
 
     def _run_now(self, job_id: int, overrides: dict):
-        """Start a job run in the background (like Databricks): python tasks named genie_quality_gate.py are
-        executed against this workspace; every other task just succeeds."""
+        """Start a job run in the background (like Databricks): the python tasks in RUNNABLE are executed against
+        this workspace (without Spark); every other task just succeeds."""
         st = self.state
         settings = st.jobs[job_id]
         params = {p["name"]: str(p.get("default", "")) for p in settings.get("parameters", [])}
@@ -297,7 +365,7 @@ class _Handler(BaseHTTPRequestHandler):
         for task, view in zip(settings.get("tasks", []), st.runs[run_id]["view"]["tasks"]):
             py = task.get("spark_python_task") or {}
             result = "SUCCESS"
-            if py.get("python_file", "").endswith("genie_quality_gate.py"):
+            if py.get("python_file", "").rsplit("/", 1)[-1] in RUNNABLE:
                 args = list(py.get("parameters", []))
                 for k, v in params.items():
                     args = [a.replace("{{job.parameters.%s}}" % k, v) for a in args]
@@ -471,12 +539,22 @@ class _Handler(BaseHTTPRequestHandler):
                                         "benchmark_question_id": r["benchmark_question_id"], "assessment": r["assessment"],
                                         "assessment_reasons": [r["reason"]] if r["reason"] else [], "eval_run_status": "DONE"})
             return self._send(200, self._run_view(run_id, "DONE"))
+        if p.endswith("/conversations") and method == "GET":
+            convs = {}
+            for m in st.messages.values():
+                if m["space_id"] == sid:
+                    convs.setdefault(m["conversation_id"], {"conversation_id": m["conversation_id"], "title": m["content"],
+                                                            "created_timestamp": m["created_timestamp"]})
+            return self._send(200, {"conversations": sorted(convs.values(), key=lambda c: -c["created_timestamp"])})
+        if p.endswith("/messages") and method == "GET":
+            cid = parts[-2]
+            return self._send(200, {"messages": [m for m in st.messages.values() if m["conversation_id"] == cid]})
         if p.endswith("/start-conversation"):
             question = body.get("content", "")
             sql = self._answer(space, question)
             cid, mid = uuid.uuid4().hex, uuid.uuid4().hex
             msg = {"id": mid, "message_id": mid, "conversation_id": cid, "space_id": sid, "content": question,
-                   "status": "COMPLETED",
+                   "status": "COMPLETED", "created_timestamp": int(time.time() * 1000), "user_id": 4242,
                    "attachments": [{"attachment_id": uuid.uuid4().hex, "query": {"query": sql}}] if sql else
                                   [{"attachment_id": uuid.uuid4().hex, "text": {"content": "I could not answer that."}}]}
             st.messages[mid] = msg

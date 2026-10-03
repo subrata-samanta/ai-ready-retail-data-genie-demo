@@ -39,13 +39,40 @@ def test_template_own_tests_pass():
     assert "All tests passed" in p.stdout
 
 
+class TrustedSQL:
+    """Stand-in for Genie in the stand-in workspace: answers a question with the space's trusted SQL for it (example
+    or benchmark answer); a benchmark is GOOD when that is the benchmark's own SQL."""
+
+    @staticmethod
+    def _norm(sql):
+        return " ".join((sql or "").split())
+
+    def __call__(self, space, question):
+        for e in space.get("instructions", {}).get("example_question_sqls", []):
+            if " ".join(e["question"]) == question:
+                return "".join(e["sql"])
+        for b in space.get("benchmarks", {}).get("questions", []):
+            if " ".join(b["question"]) == question and b.get("answer"):
+                return "".join(b["answer"][0]["content"])
+        return None
+
+    def grade(self, space, question, expected):
+        answer = self(space, question)
+        if answer is None:
+            return "NEEDS_REVIEW", ""
+        return ("GOOD", "") if self._norm(answer) == self._norm(expected) else ("BAD", "RESULT_MISSING_ROWS")
+
+    def query(self, sql):
+        return [], []
+
+
 def test_template_bundle_with_the_real_databricks_cli():
     cli = _cli()
     if cli is None:
         print("      (Databricks CLI 1.14+ not found: template bundle test skipped)")
         return
     from fake_workspace import FakeWorkspace
-    ws = FakeWorkspace.start()
+    ws = FakeWorkspace.start(evaluator=TrustedSQL())
     tmp = Path(tempfile.mkdtemp(prefix="genie_template_test_"))
     project = tmp / "project"
     shutil.copytree(TEMPLATE, project, ignore=shutil.ignore_patterns(".databricks", "__pycache__"))
@@ -81,9 +108,28 @@ def test_template_bundle_with_the_real_databricks_cli():
         # a new project: nothing deployed to dev yet, so the sync has nothing to do (and does not fail the release)
         assert "not deployed to dev yet" in run(sys.executable, "scripts/sync_from_workspace.py", "-t", "dev")
 
-        run(cli, "bundle", "deploy", "-t", "qa")
+        out = run(cli, "bundle", "deploy", "-t", "qa")
         assert "0 to add, 0 to change, 0 to delete" in run(cli, "bundle", "plan", "-t", "qa")
         sid = json.loads(run(cli, "bundle", "summary", "-t", "qa", "-o", "json"))["resources"]["genie_spaces"][T.SPACE_RESOURCE]["id"]
+        # monitoring is deployed with the space: dashboard on the qa monitoring tables, three SQL alerts (paused in qa)
+        dash = next(iter(ws.state.dashboards.values()))
+        assert dash["dataset_catalog"] == "acme_qa" and dash["dataset_schema"] == "genie_monitoring", dash
+        assert {a["display_name"].split(" · ")[1] for a in ws.state.alerts.values()} == \
+            {"accuracy below the gate [QA]", "monitoring stale [QA]", "failing answers [QA]"}
+        assert {a["schedule"]["pause_status"] for a in ws.state.alerts.values()} == {"PAUSED"}
+        assert all("FROM acme_qa.genie_monitoring.genie_" in a["query_text"] and "target = 'qa'" in a["query_text"]
+                   for a in ws.state.alerts.values())
+        # the link GitHub shows for the environment
+        assert run(sys.executable, "scripts/space_url.py", "-t", "qa").strip() == f"url={ws.host}/genie/rooms/{sid}"
+        # the release's qa steps: the quality job (gate), its report for the approver, the smoke test, the usage job
+        run(cli, "bundle", "run", "genie_quality", "-t", "qa")
+        report = run(sys.executable, "scripts/quality_report.py", "-t", "qa")
+        assert "genie_quality in qa: SUCCESS" in report and "GATE PASSED" in report and "5/5 graded correct" in report, report
+        run(cli, "bundle", "run", "genie_quality", "-t", "qa", "--params", "mode=smoke")
+        assert "SMOKE TEST PASSED" in run(sys.executable, "scripts/quality_report.py", "-t", "qa")
+        run(cli, "bundle", "run", "genie_usage", "-t", "qa")
+        usage = run(sys.executable, "scripts/quality_report.py", "-t", "qa", "--job", "genie_usage")
+        assert "1 question(s) from 1 user(s)" in usage, usage
         ws.ui_edit(sid, lambda d: d["config"]["sample_questions"].append({"id": uuid.uuid4().hex, "question": ["UI edit"]}))
         Path(tmp, "plan.json").write_text(run(cli, "bundle", "plan", "-t", "qa", "-o", "json"))
         p = subprocess.run([sys.executable, "scripts/check_drift.py", str(tmp / "plan.json"), "-t", "qa", "--backup-dir",
@@ -94,6 +140,16 @@ def test_template_bundle_with_the_real_databricks_cli():
         synced = T.load_space(project / SPACE_PATH)
         assert T.validate(synced)[0] == [], "the export is written with ${var.catalog}.${var.schema}"
         assert "acme_qa" not in (project / SPACE_PATH).read_text()
+
+        # prod: alerts running, schedules on, and the space can't be destroyed by accident
+        run(cli, "bundle", "deploy", "-t", "prod")
+        prod_alerts = [a for a in ws.state.alerts.values() if not a["display_name"].endswith("]")]
+        assert len(prod_alerts) == 3 and {a["schedule"]["pause_status"] for a in prod_alerts} == {"UNPAUSED"}
+        scheduled = [j["name"] for j in ws.state.jobs.values() if j.get("schedule")]
+        assert sorted(scheduled) == ["Acme Orders Assistant · quality", "Acme Orders Assistant · usage"], scheduled
+        p = subprocess.run([cli, "bundle", "destroy", "-t", "prod", "--auto-approve"], cwd=project, env=env,
+                           capture_output=True, text=True)
+        assert p.returncode != 0 and "prevent_destroy" in p.stdout + p.stderr
     finally:
         ws.stop()
         shutil.rmtree(tmp, ignore_errors=True)
@@ -244,3 +300,69 @@ def test_template_notebook_dry_run_changes_nothing():
                      "+ added sample question: Which nation has the most customers?",
                      "[dry run] GRANT USE CATALOG ON CATALOG `acme_prod`"):
         assert expected in out, expected
+
+
+# ------------------------------------------------------------------- the template as a project of its own
+def _copy_project(tmp: Path) -> Path:
+    project = tmp / "new-genie-project"
+    shutil.copytree(TEMPLATE, project, ignore=shutil.ignore_patterns(".databricks", "__pycache__"))
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "from the template"]):
+        subprocess.run(["git", *args], cwd=project, check=True, capture_output=True)
+    return project
+
+
+def test_template_works_as_a_repository_of_its_own():
+    """Copied to the root of a new repository, every step of genie-ci's checks job passes, and nothing in the
+    template refers to files outside it (or to this demo)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        project = _copy_project(Path(tmp))
+        for step in (["tests/run_tests.py"], ["scripts/validate_space.py"], ["scripts/build_notebooks.py", "--check"],
+                     ["scripts/readiness.py", "--strict"], ["scripts/validate_space.py", "--diff-against", "main"],
+                     ["scripts/validate_space.py", "--release-notes", "", "main"], ["scripts/genie_tools.py"]):
+            p = subprocess.run([sys.executable, *step], cwd=project, capture_output=True, text=True)
+            assert p.returncode == 0, f"{step}\n{p.stdout[-2000:]}\n{p.stderr[-2000:]}"
+        notes = subprocess.run([sys.executable, "scripts/validate_space.py", "--release-notes", "", "main"], cwd=project,
+                               capture_output=True, text=True).stdout
+        assert "(first release)" in notes and "+ added benchmark" in notes
+        for f in project.rglob("*"):
+            if f.is_file() and ".git" not in f.parts and f.suffix in (".py", ".yml", ".yaml", ".md", ".json", ".ipynb", ""):
+                text = f.read_text(encoding="utf-8", errors="ignore").lower()
+                for word in ("freshcart", "genie_bundle/", "ai-ready-retail"):
+                    assert word not in text, f"{f.relative_to(project)} mentions {word}"
+
+
+def test_template_adapts_to_one_catalog_with_a_schema_per_environment():
+    """Another common layout, changed only in genie.config.yml: the same space then renders to main.sales_<env>."""
+    cli = _cli()
+    with tempfile.TemporaryDirectory() as tmp:
+        project = _copy_project(Path(tmp))
+        cfg = project / "genie.config.yml"
+        text = cfg.read_text().replace("name: acme-orders-genie", "name: contoso-sales-genie")
+        for env, cat in (("sandbox", "acme_dev"), ("dev", "acme_dev"), ("qa", "acme_qa"), ("prod", "acme_prod")):
+            schema = "sales_dev" if env == "sandbox" else f"sales_{env}"
+            text = text.replace(f"      catalog: {cat}                ", f"      catalog: main\n      schema: {schema}  ", 1)
+        cfg.write_text(text)
+        p = subprocess.run([sys.executable, "tests/run_tests.py"], cwd=project, capture_output=True, text=True)
+        assert p.returncode == 0 and "All tests passed" in p.stdout, p.stdout[-3000:]
+        code = ("import sys; sys.path.insert(0, 'scripts'); import genie_tools as T; import json;"
+                "print(json.dumps({e: sorted(T.data_sources(T.for_target(T.load_space(), e))) for e in T.ENVIRONMENTS}))")
+        rendered = json.loads(subprocess.run([sys.executable, "-c", code], cwd=project, capture_output=True,
+                                             text=True).stdout)
+        assert rendered["prod"][0].startswith("main.sales_prod.") and rendered["dev"][0].startswith("main.sales_dev."), rendered
+        if cli is None:
+            return
+        from fake_workspace import FakeWorkspace
+        ws = FakeWorkspace.start()
+        env = {**os.environ, "DATABRICKS_HOST": ws.host, "DATABRICKS_TOKEN": "test"}
+        env.pop("DATABRICKS_CONFIG_PROFILE", None)
+        try:
+            out = subprocess.run([cli, "bundle", "validate", "-t", "qa", "-o", "json"], cwd=project, env=env,
+                                 capture_output=True, text=True)
+            assert out.returncode == 0, out.stderr
+            res = json.loads(out.stdout)
+            assert res["bundle"]["name"] == "contoso-sales-genie"
+            space = json.loads(res["resources"]["genie_spaces"][T.SPACE_RESOURCE]["serialized_space"])
+            assert {i.rsplit(".", 1)[0] for i in T.data_sources(space)} == {"main.sales_qa"}
+        finally:
+            ws.stop()

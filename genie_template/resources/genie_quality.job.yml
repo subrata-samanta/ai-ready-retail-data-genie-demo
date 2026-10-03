@@ -11,10 +11,19 @@ resources:
   jobs:
     genie_quality:
       name: ${var.space_title} · quality${var.title_suffix}
-      description: Health checks and benchmarks of the Genie space ${var.space_title} (bundle ${bundle.name}).
+      description: >-
+        Health checks and benchmarks of the Genie space ${var.space_title} (bundle ${bundle.name}).
+        Business owner ${var.business_owner}; maintained by ${var.technical_owner}; support ${var.support_contact}.
       max_concurrent_runs: 1
+      timeout_seconds: 7200
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: 3600
       email_notifications:
         on_failure: ${var.alert_emails}
+        on_duration_warning_threshold_exceeded: ${var.alert_emails}
       parameters:
         - name: space_id
           default: ${resources.genie_spaces.genie_space.id}

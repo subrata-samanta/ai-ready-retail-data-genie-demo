@@ -6,8 +6,9 @@
 #   2. if it changed: commit it on the branch genie/dev-sync, tag the commit genie-dev-snapshot-<UTC time>
 #      (dev's version history: every snapshot can be restored with genie-rollback), open or update a pull request
 #
-# Pull requests created with the default GITHUB_TOKEN don't trigger other workflows. To run genie-ci on the sync
-# pull request automatically, store a GitHub App token or fine-grained token as the secret GENIE_SYNC_TOKEN.
+# Pushes made with the default GITHUB_TOKEN don't trigger other workflows, so the required check would never run
+# on the sync pull request: this workflow starts genie-ci on the branch itself (workflow_dispatch is allowed).
+# Alternatively store a GitHub App token or fine-grained token as the secret GENIE_SYNC_TOKEN.
 name: genie-dev-sync
 
 on:
@@ -24,6 +25,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  actions: write                               # start genie-ci on the sync branch
 
 jobs:
   sync:
@@ -36,6 +38,7 @@ jobs:
       DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
       BASE: ${{ github.event.repository.default_branch }}
       GH_TOKEN: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
+      HAS_SYNC_TOKEN: ${{ secrets.GENIE_SYNC_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,4 +75,5 @@ jobs:
           gh pr view genie/dev-sync >/dev/null 2>&1 || gh pr create --base "$BASE" --head genie/dev-sync \
             --title "Genie: sync changes made in dev" \
             --body "Changes made in the dev Genie space UI, exported by genie-dev-sync. Review the change list in the checks, then merge to release them to qa and prod."
+          if [ "$HAS_SYNC_TOKEN" != "true" ]; then gh workflow run genie-ci.yml --ref genie/dev-sync; fi
           echo "Snapshot genie-dev-snapshot-$STAMP" >> "$GITHUB_STEP_SUMMARY"

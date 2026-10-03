@@ -1,0 +1,8 @@
+# Who must review what (GitHub: Settings -> Branches -> require review from Code Owners).
+# Replace the example teams with your own, then uncomment.
+#
+# /space/                  @acme/genie-developers           the space's content
+# /genie.config.yml        @acme/genie-developers @acme/data-platform
+# /databricks.yml          @acme/data-platform              environments, permissions, schedules
+# /resources/              @acme/data-platform
+# /.github/                @acme/data-platform              the release pipeline itself

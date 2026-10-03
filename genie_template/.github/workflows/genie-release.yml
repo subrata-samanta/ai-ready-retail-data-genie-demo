@@ -3,10 +3,13 @@
 #   dev-snapshot  edits made in the dev Genie UI are committed to git first (genie-dev-sync), so nothing is lost
 #   dev           bundle deploy
 #   qa            bundle plan -> check_drift.py (refuses to overwrite UI edits, refuses to delete or recreate the
-#                 space, keeps a backup of the live space) -> deploy -> quality job (health + benchmarks) -> smoke test
+#                 space, keeps a backup of the live space) -> deploy -> quality job (health + benchmarks) -> smoke test;
+#                 the quality job's report (accuracy, wrong answers with Genie's SQL) goes into the run summary, for
+#                 the approver
 #   prod          waits for an approval (required reviewers on the GitHub environment prod), then the same drift
 #                 gate, deploy, smoke test (restores the previous release if it fails), tag genie-prod-<UTC>-<sha>
 #                 and a GitHub release whose notes list every change in the space since the previous release
+#   every environment's deployment links to its live space (GitHub environment URL)
 #
 # One-time setup: notebooks/Genie_Project_Template (part B). Until an environment has DATABRICKS_HOST, its
 # steps are skipped with a notice.
@@ -28,7 +31,7 @@ on:
         type: boolean
         default: false
       allow_destroy:
-        description: Allow a plan that deletes or recreates the Genie space (its conversations are lost)
+        description: Allow a plan that deletes or recreates the Genie space (its conversations are lost; prod also needs lifecycle.prevent_destroy removed)
         type: boolean
         default: false
 
@@ -40,6 +43,7 @@ permissions:
   contents: write                              # release tags and GitHub releases
   id-token: write                              # GitHub OIDC token for Databricks
   pull-requests: write                         # the dev snapshot may open a sync pull request
+  actions: write                               # ... and start its checks
 
 env:
   DATABRICKS_CLI_VERSION: "1.18.0"
@@ -53,7 +57,9 @@ jobs:
   dev:
     needs: dev-snapshot
     runs-on: ubuntu-latest
-    environment: dev
+    environment:
+      name: dev
+      url: ${{ steps.space.outputs.url }}
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
@@ -72,11 +78,16 @@ jobs:
         run: |
           databricks bundle validate -t dev
           databricks bundle deploy -t dev
+      - id: space
+        if: steps.cfg.outputs.ready == 'true'
+        run: python3 scripts/space_url.py -t dev >> "$GITHUB_OUTPUT"
 
   qa:
     needs: dev
     runs-on: ubuntu-latest
-    environment: qa
+    environment:
+      name: qa
+      url: ${{ steps.space.outputs.url }}
     outputs:
       gated: ${{ steps.gate.outcome == 'success' }}
     env:
@@ -114,10 +125,16 @@ jobs:
       - name: Deploy
         if: steps.cfg.outputs.ready == 'true'
         run: databricks bundle deploy -t qa
+      - id: space
+        if: steps.cfg.outputs.ready == 'true'
+        run: python scripts/space_url.py -t qa >> "$GITHUB_OUTPUT"
       - id: gate
         name: Quality gate (health checks and benchmarks)
         if: steps.cfg.outputs.ready == 'true'
         run: databricks bundle run genie_quality -t qa
+      - name: Quality report for the approver
+        if: always() && steps.cfg.outputs.ready == 'true'
+        run: python scripts/quality_report.py -t qa
       - name: Smoke test
         if: steps.cfg.outputs.ready == 'true'
         run: databricks bundle run genie_quality -t qa --params mode=smoke
@@ -126,7 +143,9 @@ jobs:
     needs: qa
     if: needs.qa.outputs.gated == 'true'       # never without a passed qa gate
     runs-on: ubuntu-latest
-    environment: prod
+    environment:
+      name: prod
+      url: ${{ steps.space.outputs.url }}
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
@@ -159,6 +178,8 @@ jobs:
           retention-days: 400
       - name: Deploy
         run: databricks bundle deploy -t prod
+      - id: space
+        run: python scripts/space_url.py -t prod >> "$GITHUB_OUTPUT"
       - name: Smoke test (restores the previous release if it fails)
         run: |
           if ! databricks bundle run genie_quality -t prod --params mode=smoke; then
@@ -170,6 +191,9 @@ jobs:
             fi
             exit 1
           fi
+      - name: Smoke test report
+        if: always()
+        run: python scripts/quality_report.py -t prod
       - name: Tag and publish the release
         run: |
           PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)

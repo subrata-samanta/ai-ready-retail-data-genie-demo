@@ -1,10 +1,11 @@
 # Checks on every pull request (and every push to main). Make "checks" a required status check on main
 # (the setup notebook does this).
 #
-#   checks   no workspace needed: template tests, the space definition is valid and canonical, the notebooks
-#            are up to date, and the reviewer gets the list of changes in the space (job summary)
-#   bundle   with the dev environment's credentials: databricks bundle validate and plan for dev
-#            (skipped with a notice until the GitHub environment dev has DATABRICKS_HOST)
+#   checks   no workspace needed: the project's tests, the space definition is valid and canonical, the notebooks
+#            are up to date, the production readiness review passes its MUST checks; the reviewer gets the list
+#            of changes in the space and the readiness review (job summary)
+#   bundle   with the dev environment's credentials: bundle validate and plan for dev, and every example and
+#            benchmark SQL of the space runs on dev data (skipped with a notice until dev has DATABRICKS_HOST)
 name: genie-ci
 
 on:
@@ -37,6 +38,8 @@ jobs:
         run: python scripts/validate_space.py
       - name: Notebooks are up to date
         run: python scripts/build_notebooks.py --check
+      - name: Production readiness review
+        run: python scripts/readiness.py --strict
       - name: What changed in the Genie space
         if: github.event_name == 'pull_request'
         run: python scripts/validate_space.py --diff-against "origin/${{ github.base_ref }}"
@@ -51,9 +54,13 @@ jobs:
       DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: databricks/setup-cli@main
         with:
           version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - run: pip install -r requirements-dev.txt
       - id: cfg
         run: |
           if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); bundle checks skipped"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
@@ -62,3 +69,6 @@ jobs:
         run: |
           databricks bundle validate -t dev
           databricks bundle plan -t dev
+      - name: Every SQL of the space runs on dev data
+        if: steps.cfg.outputs.ready == 'true'
+        run: python scripts/check_sql.py -t dev
