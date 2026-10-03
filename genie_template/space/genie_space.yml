@@ -1,0 +1,168 @@
+# Content of the Genie space: data sources, instructions, example SQL, SQL snippets, trusted functions,
+# sample questions and benchmarks, in Databricks' serialized-space format (the bundle variable genie_space).
+#
+# Tables are written ${var.catalog}.${var.schema}.<table>; each environment's values come from genie.config.yml.
+# Edit it in the dev Genie UI and let genie-dev-sync write this file, or edit it here in a pull request.
+# Keep it canonical: python scripts/validate_space.py --fix
+variables:
+  genie_space:
+    default:
+      benchmarks:
+        questions:
+        - answer:
+          - content:
+            - "SELECT COUNT(*) AS open_orders\n"
+            - "FROM   ${var.catalog}.${var.schema}.orders\n"
+            - WHERE  o_orderstatus = 'O'
+            format: SQL
+          id: 47b03021ebb30e54380b633a984b1677
+          question:
+          - How many orders are still open?
+        - answer:
+          - content:
+            - "SELECT SUM(o_totalprice) AS revenue\n"
+            - "FROM   ${var.catalog}.${var.schema}.orders\n"
+            - WHERE  year(o_orderdate) = 1996
+            format: SQL
+          id: 5d6370b530db3f38be01c77d17842b27
+          question:
+          - What was total revenue in 1996?
+        - answer:
+          - content:
+            - "SELECT COUNT(*) AS customers\n"
+            - "FROM   ${var.catalog}.${var.schema}.customer\n"
+            - WHERE  c_mktsegment = 'BUILDING'
+            format: SQL
+          id: 60a0e248daafbdc3e3171550dc729c24
+          question:
+          - How many customers are in the BUILDING segment?
+        - answer:
+          - content:
+            - "SELECT r.r_name AS region, COUNT(*) AS customers\n"
+            - "FROM   ${var.catalog}.${var.schema}.customer c\n"
+            - "JOIN   ${var.catalog}.${var.schema}.nation n ON n.n_nationkey = c.c_nationkey\n"
+            - "JOIN   ${var.catalog}.${var.schema}.region r ON r.r_regionkey = n.n_regionkey\n"
+            - "GROUP BY ALL\n"
+            - "ORDER BY customers DESC\n"
+            - LIMIT 1
+            format: SQL
+          id: c09ed6f8472e004618844dd4142f4592
+          question:
+          - Which region has the most customers?
+        - answer:
+          - content:
+            - "SELECT COUNT(*) AS orders\n"
+            - "FROM   ${var.catalog}.${var.schema}.orders\n"
+            - WHERE  year(o_orderdate) = 1995
+            format: SQL
+          id: d38d4e0d9fce976d265e98cbbc35a178
+          question:
+          - How many orders were placed in 1995?
+      config:
+        sample_questions:
+        - id: 5065b17156ed009b548c5e984dc3fd61
+          question:
+          - What is revenue by region and year?
+        - id: 80fb07638b593c72893844f6c9488b49
+          question:
+          - Which market segment brings the most revenue?
+        - id: f1dd742273f299aa7330db41866e333d
+          question:
+          - How many orders were placed in 1995?
+      data_sources:
+        tables:
+        - column_configs:
+          - column_name: c_address
+            exclude: true
+          - column_name: c_mktsegment
+            enable_entity_matching: true
+            enable_format_assistance: true
+          - column_name: c_phone
+            exclude: true
+          identifier: ${var.catalog}.${var.schema}.customer
+        - column_configs:
+          - column_name: n_name
+            enable_entity_matching: true
+            enable_format_assistance: true
+          identifier: ${var.catalog}.${var.schema}.nation
+        - column_configs:
+          - column_name: o_orderpriority
+            enable_entity_matching: true
+            enable_format_assistance: true
+          - column_name: o_orderstatus
+            enable_entity_matching: true
+            enable_format_assistance: true
+          identifier: ${var.catalog}.${var.schema}.orders
+        - column_configs:
+          - column_name: r_name
+            enable_entity_matching: true
+            enable_format_assistance: true
+          identifier: ${var.catalog}.${var.schema}.region
+      instructions:
+        example_question_sqls:
+        - id: 930bc92ccc800f622038ebd5193c5c92
+          question:
+          - What is revenue by region and year?
+          sql:
+          - "SELECT r.r_name AS region,\n"
+          - "       year(o.o_orderdate) AS order_year,\n"
+          - "       SUM(o.o_totalprice) AS revenue\n"
+          - "FROM   ${var.catalog}.${var.schema}.orders o\n"
+          - "JOIN   ${var.catalog}.${var.schema}.customer c ON c.c_custkey = o.o_custkey\n"
+          - "JOIN   ${var.catalog}.${var.schema}.nation n   ON n.n_nationkey = c.c_nationkey\n"
+          - "JOIN   ${var.catalog}.${var.schema}.region r   ON r.r_regionkey = n.n_regionkey\n"
+          - "GROUP BY ALL\n"
+          - ORDER BY region, order_year
+        - id: bdec750c234f72203c45b5ddcb14d4d0
+          question:
+          - Who are the top 10 customers by revenue?
+          sql:
+          - "SELECT c.c_name AS customer,\n"
+          - "       SUM(o.o_totalprice) AS revenue\n"
+          - "FROM   ${var.catalog}.${var.schema}.orders o\n"
+          - "JOIN   ${var.catalog}.${var.schema}.customer c ON c.c_custkey = o.o_custkey\n"
+          - "GROUP BY ALL\n"
+          - "ORDER BY revenue DESC\n"
+          - LIMIT 10
+        - id: ff5374753da2198820366bd40cf7161c
+          question:
+          - Which market segment brings the most revenue?
+          sql:
+          - "SELECT c.c_mktsegment AS market_segment,\n"
+          - "       SUM(o.o_totalprice) AS revenue\n"
+          - "FROM   ${var.catalog}.${var.schema}.orders o\n"
+          - "JOIN   ${var.catalog}.${var.schema}.customer c ON c.c_custkey = o.o_custkey\n"
+          - "GROUP BY ALL\n"
+          - ORDER BY revenue DESC
+        sql_snippets:
+          filters:
+          - display_name: Open orders
+            id: ba1c05a5cb63cbd5d4cbe4033527f1ec
+            instruction:
+            - Apply when users ask about open or unfulfilled orders.
+            sql:
+            - o_orderstatus = 'O'
+            synonyms:
+            - open orders
+            - unfulfilled
+            - backlog
+        text_instructions:
+        - content:
+          - "## About this space\n"
+          - "This is the example content of the Genie project template: the TPC-H sample data (orders, customers,\n"
+          - "nations, regions). Replace it with your own space (see the template notebook, part C).\n"
+          - "\n"
+          - "## Business terms\n"
+          - "- Revenue means the sum of o_totalprice, in USD.\n"
+          - "- An order is one row of orders; its date is o_orderdate.\n"
+          - "- A customer's market segment is c_mktsegment; their nation is customer.c_nationkey = nation.n_nationkey,\n"
+          - "  and the region is nation.n_regionkey = region.r_regionkey.\n"
+          - "- Order status: F = fulfilled, O = open, P = partially fulfilled.\n"
+          - "\n"
+          - "## How to answer\n"
+          - "- When a question gives no period, use all years and say so.\n"
+          - '- Round revenue to whole dollars in the summary text.'
+          id: b6008d27c945ea9f86d293e4af8d04ea
+      version: 2
+    description: Serialized content of the Genie space
+    type: complex

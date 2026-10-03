@@ -1,0 +1,12 @@
+# The Genie space (a Genie Agent in the UI). Its settings come from genie.config.yml; its content
+# (tables, instructions, example SQL, benchmarks) is the variable genie_space, in space/genie_space.yml.
+resources:
+  genie_spaces:
+    genie_space:
+      title: ${var.space_title}${var.title_suffix}
+      description: ${var.space_description}
+      warehouse_id: ${var.warehouse_id}
+      serialized_space: ${var.genie_space}
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.users_group}

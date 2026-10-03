@@ -130,8 +130,8 @@ class _DBUtils:
 
 def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None, until: str | None = None,
                  setup=None, notebook: Path = NOTEBOOK) -> tuple[dict, str, object]:
-    """Run the notebook's Python cells in order (until the markdown cell containing `until`, if given).
-    `setup(workspace)` runs first, to prepare the stand-in workspace."""
+    """Run the notebook's Python cells in order (until the markdown cell containing `until`, if given), from the
+    notebook's folder. `setup(workspace)` runs first, to prepare the stand-in workspace."""
     from fake_workspace import FakeWorkspace, FreshCartEvaluator
     ws = FakeWorkspace.start(evaluator=FreshCartEvaluator())
     if setup:
@@ -141,6 +141,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
     (work / "cli").mkdir(parents=True)
     shutil.copy(cli, work / "cli" / "databricks")
     replacements = {'WORK = Path("/tmp/freshcart")': f'WORK = Path({str(work)!r})',
+                    'WORK = Path("/tmp/genie_template")': f'WORK = Path({str(work)!r})',
                     'VOLUMES = Path("/Volumes")': f'VOLUMES = Path({str(volumes)!r})',
                     **(extra_replacements or {})}
     spark = _Spark()
@@ -151,7 +152,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
     os.environ.update({"DATABRICKS_HOST": ws.host, "DATABRICKS_TOKEN": "notebook-token"})
     os.environ.pop("DATABRICKS_CONFIG_PROFILE", None)
     cwd = os.getcwd()
-    os.chdir(ROOT / "notebooks")
+    os.chdir(notebook.parent)
     try:
         for i, (kind, src) in enumerate(cells(notebook)):
             if until and kind == "md" and until in src:

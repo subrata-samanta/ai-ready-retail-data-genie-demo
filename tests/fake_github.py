@@ -2,7 +2,7 @@
 
 It implements the endpoints the notebook uses (repository, branches and refs, file contents, pull requests and
 their checks, workflow runs, deployment approvals, environments with variables and encrypted secrets, branch
-protection, tags, commits, deployments) and simulates the repository's workflows:
+protection, tag rulesets, tags, releases, commits, deployments) and simulates the repository's workflows:
 
   * opening a pull request adds the checks run-demo and checks, both successful;
   * merging to main, or dispatching genie-release, runs the release: dev-snapshot, dev and qa at once, then prod
@@ -39,9 +39,13 @@ def _sha(*parts) -> str:
 
 
 class FakeGitHub:
-    def __init__(self, owner: str, repo: str, files: dict[str, str], token: str = "test-token", branch: str = "work"):
+    def __init__(self, owner: str, repo: str, files: dict[str, str], token: str = "test-token", branch: str = "work",
+                 space_path: str = SPACE_PATH, check_names: tuple = ("run-demo", "checks")):
         from nacl import public
         self.owner, self.repo, self.token = owner, repo, token
+        self.space_path, self.check_names = space_path, check_names
+        self.releases: list[dict] = []
+        self.rulesets: list[dict] = []
         self.login, self.user_id = owner, 4242
         first = _sha("initial", time.time())
         self.commits = {first: {"files": dict(files), "message": "initial", "parent": None, "date": _now()}}
@@ -84,8 +88,8 @@ class FakeGitHub:
         self.branches[branch] = sha
         return sha
 
-    def file_at(self, ref: str, path: str = SPACE_PATH) -> str:
-        return self.commits[self.resolve(ref)]["files"][path]
+    def file_at(self, ref: str, path: str | None = None) -> str:
+        return self.commits[self.resolve(ref)]["files"][path or self.space_path]
 
     # ------------------------------------------------------------------ workflows
     def _new_run(self, workflow: str, name: str, sha: str, event: str, jobs: list[str], inputs: dict) -> dict:
@@ -137,7 +141,7 @@ class FakeGitHub:
         text = self.on_dev_sync()
         if text is not None and text != self.file_at("main"):
             self.branches["genie/dev-sync"] = self.branches["main"]
-            sha = self.commit("genie/dev-sync", {SPACE_PATH: text}, "Genie: changes made in the dev space")
+            sha = self.commit("genie/dev-sync", {self.space_path: text}, "Genie: changes made in the dev space")
             self.tags[f"genie-dev-snapshot-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"] = sha
             if not any(p["head"]["ref"] == "genie/dev-sync" and p["state"] == "open" for p in self.pulls.values()):
                 self._open_pr("Genie: sync changes made in dev", "genie/dev-sync", "main")
@@ -155,7 +159,9 @@ class FakeGitHub:
             ok = self._job(run, "prod", self.on_deploy("prod", self.file_at(run["head_sha"]), allow))
             if ok:
                 n = sum(1 for t in self.tags if t.startswith("genie-prod-"))
-                self.tags[f"genie-prod-{datetime.now(timezone.utc):%Y%m%d.%H%M%S}.{n:02d}-{run['head_sha'][:7]}"] = run["head_sha"]
+                tag = f"genie-prod-{datetime.now(timezone.utc):%Y%m%d.%H%M%S}.{n:02d}-{run['head_sha'][:7]}"
+                self.tags[tag] = run["head_sha"]
+                self.releases.insert(0, {"tag_name": tag, "published_at": _now(), "body": f"release of {run['head_sha'][:7]}"})
                 for e in ("dev", "qa", "prod"):
                     self.deployments.append({"environment": e, "sha": run["head_sha"], "created_at": _now(),
                                              "creator": {"login": "github-actions[bot]"}})
@@ -169,8 +175,7 @@ class FakeGitHub:
         pr = {"number": n, "title": title, "state": "open", "merged": False, "base": {"ref": base},
               "head": {"ref": head, "sha": sha}, "html_url": f"https://github.example/{self.owner}/{self.repo}/pull/{n}"}
         self.pulls[n] = pr
-        self.checks[sha] = [{"name": "run-demo", "status": "completed", "conclusion": "success"},
-                            {"name": "checks", "status": "completed", "conclusion": "success"}]
+        self.checks[sha] = [{"name": c, "status": "completed", "conclusion": "success"} for c in self.check_names]
         return pr
 
 
@@ -286,7 +291,7 @@ class _Handler(BaseHTTPRequestHandler):
                     old = g.file_at(pr["base"]["ref"]).splitlines()
                     new = g.file_at(pr["head"]["sha"]).splitlines()
                     patch = "\n".join(difflib.unified_diff(old, new, lineterm="", n=1))
-                    return self._send(200, [{"filename": SPACE_PATH, "patch": patch}] if patch else [])
+                    return self._send(200, [{"filename": g.space_path, "patch": patch}] if patch else [])
                 if parts[2] == "merge":
                     head_files = g.commits[pr["head"]["sha"]]["files"]
                     sha = g.commit(pr["base"]["ref"], head_files, f"{pr['title']} (#{pr['number']})")
@@ -307,6 +312,13 @@ class _Handler(BaseHTTPRequestHandler):
                                                            "committer": {"date": c["date"]}}})
                     sha = parent
                 return self._send(200, out[:int(q.get("per_page", 30))])
+            if parts[0] == "releases":
+                return self._send(200, g.releases[:int(q.get("per_page", 30))])
+            if parts[0] == "rulesets":
+                if method == "POST":
+                    g.rulesets.append(body)
+                    return self._send(201, body)
+                return self._send(200, g.rulesets)
             if parts[0] == "tags":
                 return self._send(200, [{"name": t, "commit": {"sha": s}} for t, s in sorted(g.tags.items(), reverse=True)])
             if parts[0] == "deployments":

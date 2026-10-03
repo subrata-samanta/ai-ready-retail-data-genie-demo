@@ -144,6 +144,18 @@ space, rollback, benchmark gates, approvals and drift protection in [`.github/wo
 The complete guide, which runs the real Databricks CLI end to end, is
 [`notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb`](notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb).
 
+Starting another Genie project? [`genie_template/`](genie_template/) is the same approach as a reusable template for
+any Genie space. Everything project-specific is in one config file, `genie.config.yml`. The template also contains:
+- the space's content in `space/genie_space.yml`;
+- the bundle, with a quality and monitoring job whose results go to Delta tables;
+- four GitHub workflows: checks, release, dev UI sync and rollback;
+- tests;
+- [`notebooks/Genie_Project_Template.ipynb`](genie_template/notebooks/Genie_Project_Template.ipynb), which sets up
+  Databricks and GitHub, imports your prototype space and walks it from a pull request to prod. It also covers
+  version control, drift protection, rollback, monitoring and a runbook.
+
+Copy the folder to the root of a new repository and follow [`genie_template/README.md`](genie_template/README.md).
+
 ## Repository map
 
 ```text
@@ -159,6 +171,7 @@ tests/               pipeline, bundles and notebook tests, incl. raw-to-gold rec
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
 notebooks/           every table step by step; end to end on Databricks; dev to prod with DAB and GitHub
 genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
+genie_template/      reusable template for any Genie project: one config file, bundle, workflows, tests, notebook
 ```
 
 ## Design decisions in one list

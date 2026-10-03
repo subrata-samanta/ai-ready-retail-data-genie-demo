@@ -1,18 +1,17 @@
-"""Bring edits made in the Genie UI into git (the bundle's space definition).
+"""Bring a Genie space from the workspace into git (space/genie_space.yml).
 
-    python genie_bundle/scripts/sync_from_workspace.py -t dev
-    python genie_bundle/scripts/sync_from_workspace.py -t sandbox        your personal copy
+    python scripts/sync_from_workspace.py -t dev
+        edits made in the dev Genie UI -> git (genie-dev-sync runs this hourly)
+    python scripts/sync_from_workspace.py -t dev --space-id <id> --from-catalog <c> [--from-schema <s>]
+        import any existing space (for example the one you prototyped by hand) as the project's first version
 
-Steps, all with the Databricks CLI:
-  1. `databricks bundle summary -t <target>`   -> the id of the space this bundle deployed
+Steps, with the Databricks CLI:
+  1. `databricks bundle summary -t <target>`  -> the id of the space this bundle deployed (unless --space-id)
   2. `databricks bundle generate genie-space --existing-id <id>` -> the live space as JSON
-  3. replace the target's catalog (freshcart_dev.) with ${var.catalog}. and write
-     resources/freshcart_assistant.space.yml in canonical form; print what changed
+  3. real names -> ${var.catalog}.${var.schema}. ; write space/genie_space.yml canonically; print the changes
 
-Why not `bundle generate --resource ... --force` alone? It writes a .geniespace.json with the
-target's real catalog names, and a file referenced by file_path is not variable-resolved, so the
-same file could not be deployed to qa and prod. The space is therefore kept as a bundle variable
-with ${var.catalog}, and this script converts the export into that form.
+If the bundle has not deployed the space to the target yet (a new project), there is nothing to sync: it says so
+and exits 0.
 """
 from __future__ import annotations
 
@@ -25,46 +24,41 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import space_tools as T                                        # noqa: E402
+import genie_tools as T                                        # noqa: E402
 
 CLI = os.environ.get("DATABRICKS_CLI", "databricks")
 
 
 def cli_json(*args) -> dict:
-    p = subprocess.run([CLI, *args, "-o", "json"], cwd=T.BUNDLE_DIR, capture_output=True, text=True)
+    p = subprocess.run([CLI, *args, "-o", "json"], cwd=T.PROJECT_DIR, capture_output=True, text=True)
     if p.returncode != 0:
         raise SystemExit(f"`databricks {' '.join(args)}` failed:\n{p.stderr.strip()}")
-    out = p.stdout
-    return json.loads(out[out.find("{"):])
-
-
-def target_catalog(target: str) -> str:
-    return cli_json("bundle", "validate", "-t", target)["variables"]["catalog"]["value"]
+    return json.loads(p.stdout[p.stdout.find("{"):])
 
 
 def deployed_space_id(target: str) -> str | None:
-    """None when this identity has not deployed the space to the target yet (the first release)."""
     res = cli_json("bundle", "summary", "-t", target).get("resources", {}).get("genie_spaces", {})
-    return (res.get(T.SPACE_KEY) or {}).get("id") or None
+    return (res.get(T.SPACE_RESOURCE) or {}).get("id") or None
 
 
 def export_space(target: str, space_id: str) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         p = subprocess.run([CLI, "bundle", "generate", "genie-space", "--existing-id", space_id, "--key", "export",
                             "-s", f"{tmp}/src", "-d", f"{tmp}/resources", "--force", "-t", target],
-                           cwd=T.BUNDLE_DIR, capture_output=True, text=True)
+                           cwd=T.PROJECT_DIR, capture_output=True, text=True)
         if p.returncode != 0:
             raise SystemExit(f"`databricks bundle generate genie-space` failed:\n{p.stderr.strip()}")
         return json.loads(Path(tmp, "src", "export.geniespace.json").read_text(encoding="utf-8"))
 
 
-def sync(target: str, space_id: str | None = None, path: Path = T.SPACE_FILE) -> list[str] | None:
+def sync(target: str, space_id: str | None = None, from_catalog: str | None = None, from_schema: str | None = None,
+         path: Path = T.SPACE_FILE) -> list[str] | None:
     space_id = space_id or deployed_space_id(target)
     if not space_id:
-        return None                              # nothing deployed yet: nothing to sync
-    catalog = target_catalog(target)
+        return None
+    s = T.settings(target)
     live = export_space(target, space_id)
-    space = T.neutralise(live, catalog)
+    space = T.neutralise(live, from_catalog or s["catalog"], from_schema or s.get("schema"))
     before = T.load_space(path) if path.exists() else {}
     T.save_space(space, path)
     return T.diff(before, space)
@@ -74,12 +68,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-t", "--target", default="dev")
     ap.add_argument("--space-id", help="default: the space this bundle deployed to the target")
+    ap.add_argument("--from-catalog", help="catalog the exported space uses (default: the target's)")
+    ap.add_argument("--from-schema", help="schema the exported space uses (default: the target's)")
     args = ap.parse_args(argv)
-    changes = sync(args.target, args.space_id)
+    changes = sync(args.target, args.space_id, args.from_catalog, args.from_schema)
     if changes is None:
         print(f"the space is not deployed to {args.target} yet: nothing to sync")
         return 0
-    print(f"synced {args.target} into {T.SPACE_FILE.relative_to(T.REPO_ROOT)}: {T.count_changes(changes)} change(s)")
+    print(f"synced into {T.SPACE_FILE.relative_to(T.PROJECT_DIR)}: {T.count_changes(changes)} change(s)")
     print("\n".join(changes))
     return 0
 

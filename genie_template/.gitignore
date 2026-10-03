@@ -1,0 +1,9 @@
+# Databricks bundle: local deployment state
+.databricks/
+# drift-gate output (uploaded as build artifacts)
+backup/
+plan*.json
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

@@ -1,0 +1,73 @@
+# Bundle wiring of the Genie project template. You normally don't edit this file:
+#   project values         genie.config.yml       (name, space title, catalogs, groups, gate, monitoring)
+#   the space's content    space/genie_space.yml  (tables, instructions, example SQL, benchmarks)
+#   what is deployed       resources/             (the Genie space; the quality job)
+#
+#   databricks bundle validate -t <target>      check, and show every resolved value
+#   databricks bundle deploy   -t <target>      deploy (dev, qa and prod: only GitHub Actions does this)
+#   databricks bundle run genie_quality -t qa   benchmark gate (--params mode=smoke for the smoke test)
+#
+# Requires Databricks CLI 1.14+ (Genie spaces need the direct deployment engine).
+
+bundle:
+  engine: direct
+  databricks_cli_version: ">= 1.14.0"
+
+include:
+  - genie.config.yml
+  - space/*.yml
+  - resources/*.yml
+
+sync:                                         # only the job's code is uploaded to the workspace
+  include:
+    - src/**
+  exclude:
+    - scripts/**
+    - tests/**
+    - notebooks/**
+    - space/**
+    - "*.md"
+
+targets:
+  sandbox:
+    mode: development                         # resources prefixed "[dev <you>]", under your user folder
+    default: true
+
+  # dev, qa and prod are deployed by each environment's service principal, into its own folder, so only the
+  # deployers can change what is deployed.
+  dev:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_MANAGE                     # developers edit the dev space in the Genie UI (synced to git)
+        group_name: ${var.developers_group}
+
+  qa:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - level: CAN_MANAGE
+        group_name: ${var.deployers_group}
+      - level: CAN_VIEW
+        group_name: ${var.developers_group}
+    resources:
+      jobs:
+        genie_quality:
+          schedule:                           # the nightly monitor: health checks and benchmarks on live data
+            quartz_cron_expression: ${var.monitor_cron}
+            timezone_id: ${var.monitor_timezone}
+            pause_status: UNPAUSED

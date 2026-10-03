@@ -1,0 +1,181 @@
+# Release of the Genie space: main -> dev -> qa (gate) -> prod (approval). Every environment gets the SAME commit.
+#
+#   dev-snapshot  edits made in the dev Genie UI are committed to git first (genie-dev-sync), so nothing is lost
+#   dev           bundle deploy
+#   qa            bundle plan -> check_drift.py (refuses to overwrite UI edits, refuses to delete or recreate the
+#                 space, keeps a backup of the live space) -> deploy -> quality job (health + benchmarks) -> smoke test
+#   prod          waits for an approval (required reviewers on the GitHub environment prod), then the same drift
+#                 gate, deploy, smoke test (restores the previous release if it fails), tag genie-prod-<UTC>-<sha>
+#                 and a GitHub release whose notes list every change in the space since the previous release
+#
+# One-time setup: notebooks/Genie_Project_Template (part B). Until an environment has DATABRICKS_HOST, its
+# steps are skipped with a notice.
+name: genie-release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - databricks.yml
+      - genie.config.yml
+      - "space/**"
+      - "resources/**"
+      - "src/**"
+  workflow_dispatch:
+    inputs:
+      allow_drift:
+        description: Overwrite edits made in the qa/prod UI since the last deploy (a backup is kept)
+        type: boolean
+        default: false
+      allow_destroy:
+        description: Allow a plan that deletes or recreates the Genie space (its conversations are lost)
+        type: boolean
+        default: false
+
+concurrency:
+  group: genie-release                         # shared with genie-rollback: one deployment at a time
+  cancel-in-progress: false
+
+permissions:
+  contents: write                              # release tags and GitHub releases
+  id-token: write                              # GitHub OIDC token for Databricks
+  pull-requests: write                         # the dev snapshot may open a sync pull request
+
+env:
+  DATABRICKS_CLI_VERSION: "1.18.0"
+  DRIFT_FLAGS: ${{ inputs.allow_drift && '--allow-drift' || '' }} ${{ inputs.allow_destroy && '--allow-destroy' || '' }}
+
+jobs:
+  dev-snapshot:
+    uses: ./.github/workflows/genie-dev-sync.yml
+    secrets: inherit
+
+  dev:
+    needs: dev-snapshot
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+        with:
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - id: cfg
+        run: |
+          if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Deploy
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          databricks bundle validate -t dev
+          databricks bundle deploy -t dev
+
+  qa:
+    needs: dev
+    runs-on: ubuntu-latest
+    environment: qa
+    outputs:
+      gated: ${{ steps.gate.outcome == 'success' }}
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+        with:
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - run: pip install -r requirements-dev.txt
+      - id: cfg
+        run: |
+          if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::qa is not connected (no DATABRICKS_HOST); skipping"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Plan, drift gate and backup of the live space
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          databricks bundle validate -t qa
+          databricks bundle plan -t qa
+          databricks bundle plan -t qa -o json > plan.qa.json
+          python scripts/check_drift.py plan.qa.json -t qa --backup-dir backup $DRIFT_FLAGS
+      - if: steps.cfg.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: genie-qa-pre-deploy-${{ github.run_id }}
+          path: |
+            plan.qa.json
+            backup/
+          retention-days: 90
+      - name: Deploy
+        if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle deploy -t qa
+      - id: gate
+        name: Quality gate (health checks and benchmarks)
+        if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle run genie_quality -t qa
+      - name: Smoke test
+        if: steps.cfg.outputs.ready == 'true'
+        run: databricks bundle run genie_quality -t qa --params mode=smoke
+
+  prod:
+    needs: qa
+    if: needs.qa.outputs.gated == 'true'       # never without a passed qa gate
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # release tags: automatic restore and release notes
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+        with:
+          version: ${{ env.DATABRICKS_CLI_VERSION }}
+      - run: pip install -r requirements-dev.txt
+      - name: Plan, drift gate and backup of the live space
+        run: |
+          databricks bundle validate -t prod
+          databricks bundle plan -t prod
+          databricks bundle plan -t prod -o json > plan.prod.json
+          python scripts/check_drift.py plan.prod.json -t prod --backup-dir backup $DRIFT_FLAGS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: genie-prod-pre-deploy-${{ github.run_id }}
+          path: |
+            plan.prod.json
+            backup/
+          retention-days: 400
+      - name: Deploy
+        run: databricks bundle deploy -t prod
+      - name: Smoke test (restores the previous release if it fails)
+        run: |
+          if ! databricks bundle run genie_quality -t prod --params mode=smoke; then
+            PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)
+            echo "::error::smoke test failed on prod; restoring the space of ${PREVIOUS:-nothing}"
+            if [ -n "$PREVIOUS" ]; then
+              git checkout "$PREVIOUS" -- space/genie_space.yml
+              databricks bundle deploy -t prod
+            fi
+            exit 1
+          fi
+      - name: Tag and publish the release
+        run: |
+          PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)
+          TAG="genie-prod-$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          python scripts/validate_space.py --release-notes "$PREVIOUS" "$GITHUB_SHA" --out notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag
+          { echo "Released $TAG"; echo; cat notes.md; } >> "$GITHUB_STEP_SUMMARY"

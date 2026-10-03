@@ -1,0 +1,4 @@
+# Tools for CI and local work (the Databricks CLI is installed separately: databricks/setup-cli in GitHub Actions)
+pyyaml>=6.0
+databricks-sdk>=0.145.0
+pynacl>=1.5            # the setup notebook encrypts GitHub secrets with it

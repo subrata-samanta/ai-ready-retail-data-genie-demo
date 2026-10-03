@@ -181,6 +181,8 @@ def test_bundle_with_the_real_databricks_cli():
             space = json.loads(cfg["resources"]["genie_spaces"][T.SPACE_KEY]["serialized_space"])
             assert {t["identifier"].split(".")[0] for t in space["data_sources"]["tables"]} == {catalog}, target
 
+        # before the first deploy there is nothing to sync, and the sync must not fail the first release
+        assert "not deployed to dev yet" in run(sys.executable, "scripts/sync_from_workspace.py", "-t", "dev")
         run(cli, "bundle", "deploy", "-t", "qa")
         assert "0 to add, 0 to change, 0 to delete" in run(cli, "bundle", "plan", "-t", "qa")
         space_id = json.loads(run(cli, "bundle", "summary", "-t", "qa", "-o", "json"))["resources"]["genie_spaces"][T.SPACE_KEY]["id"]

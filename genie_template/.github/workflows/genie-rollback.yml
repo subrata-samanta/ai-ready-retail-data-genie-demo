@@ -1,0 +1,102 @@
+# Rollback (run by hand from the Actions tab): deploy an earlier version to one environment.
+#
+#   to    = previous                  the release before the latest genie-prod-* tag
+#         = <tag or commit>           e.g. genie-prod-20261001.0915-1a2b3c4, or genie-dev-snapshot-<time>
+#   what  = space   (default)         only space/genie_space.yml as it was; today's settings and jobs
+#         = bundle                    the whole bundle as it was (config, space, resources, job code)
+#
+# It is a normal `databricks bundle deploy` (prod waits for the same approval as a release), and the live space
+# is backed up first. Afterwards fix forward on main (for example `git revert`), or the next release brings the
+# bad version back.
+name: genie-rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        type: choice
+        options: [prod, qa, dev]
+        required: true
+      to:
+        description: "previous | <tag or commit>"
+        default: previous
+        required: true
+      what:
+        description: What to restore
+        type: choice
+        options: [space, bundle]
+        default: space
+      reason:
+        description: Why (kept in the run log)
+        required: true
+
+concurrency:
+  group: genie-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_CLIENT_SECRET && 'oauth-m2m' || 'github-oidc' }}
+      TARGET: ${{ inputs.environment }}        # inputs reach the shell as variables, never as code
+      ROLLBACK_TO: ${{ inputs.to }}
+      WHAT: ${{ inputs.what }}
+      REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+        with:
+          version: "1.18.0"
+      - run: pip install -r requirements-dev.txt
+      - name: Resolve the version to restore
+        run: |
+          echo "Rollback of $TARGET ($WHAT) to '$ROLLBACK_TO' requested by $GITHUB_ACTOR: $REASON"
+          if [ "$ROLLBACK_TO" = "previous" ]; then
+            REF=$(git tag -l 'genie-prod-*' --sort=-refname | sed -n 2p)
+            [ -n "$REF" ] || { echo "::error::there is no earlier genie-prod-* release"; exit 1; }
+          else
+            REF="$ROLLBACK_TO"
+          fi
+          git rev-parse --verify "$REF^{commit}" >/dev/null
+          echo "REF=$REF" >> "$GITHUB_ENV"
+          echo "Restoring $WHAT in $TARGET to $REF: $REASON" >> "$GITHUB_STEP_SUMMARY"
+      - name: Check out that version
+        run: |
+          case "$WHAT" in
+            space)  git checkout "$REF" -- space/genie_space.yml ;;
+            bundle) git checkout "$REF" -- databricks.yml genie.config.yml space resources src ;;
+          esac
+          git status --short
+          python scripts/validate_space.py --diff-against HEAD
+      - name: Plan and backup of the live space
+        run: |
+          databricks bundle plan -t "$TARGET"
+          databricks bundle plan -t "$TARGET" -o json > plan.json
+          python scripts/check_drift.py plan.json -t "$TARGET" --backup-dir backup --allow-drift
+      - uses: actions/upload-artifact@v4
+        with:
+          name: genie-${{ inputs.environment }}-pre-rollback-${{ github.run_id }}
+          path: |
+            plan.json
+            backup/
+          retention-days: 400
+      - name: Deploy the restored version
+        run: databricks bundle deploy -t "$TARGET"
+      - name: Smoke test
+        if: inputs.environment != 'dev'
+        run: databricks bundle run genie_quality -t "$TARGET" --params mode=smoke

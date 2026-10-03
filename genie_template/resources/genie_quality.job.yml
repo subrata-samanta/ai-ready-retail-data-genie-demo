@@ -1,0 +1,68 @@
+# The quality job of the Genie space: deployed with the bundle, run by the release pipeline and, in prod,
+# every night on its own (schedule in databricks.yml).
+#
+#   mode=gate   health checks on every table of the space, then the space's benchmarks; fails below the gate
+#               thresholds of genie.config.yml. Results go to <catalog>.<monitoring_schema>.genie_* tables.
+#   mode=smoke  one question (smoke_question) must be answered with SQL
+#
+#   databricks bundle run genie_quality -t qa
+#   databricks bundle run genie_quality -t prod --params mode=smoke
+resources:
+  jobs:
+    genie_quality:
+      name: ${var.space_title} · quality${var.title_suffix}
+      description: Health checks and benchmarks of the Genie space ${var.space_title} (bundle ${bundle.name}).
+      max_concurrent_runs: 1
+      email_notifications:
+        on_failure: ${var.alert_emails}
+      parameters:
+        - name: space_id
+          default: ${resources.genie_spaces.genie_space.id}
+        - name: mode
+          default: gate
+        - name: min_accuracy
+          default: ${var.gate_min_accuracy}
+        - name: min_graded
+          default: ${var.gate_min_graded}
+        - name: max_bad
+          default: ${var.gate_max_bad}
+        - name: smoke_question
+          default: ${var.smoke_question}
+        - name: max_data_age_hours
+          default: ${var.max_data_age_hours}
+        - name: record_to
+          default: ${var.catalog}.${var.monitoring_schema}
+        - name: version                       # the git commit that was deployed: recorded with every result
+          default: ${bundle.git.commit}
+      tasks:
+        - task_key: genie_quality
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/genie_quality.py
+            parameters:
+              - --space-id
+              - "{{job.parameters.space_id}}"
+              - --mode
+              - "{{job.parameters.mode}}"
+              - --min-accuracy
+              - "{{job.parameters.min_accuracy}}"
+              - --min-graded
+              - "{{job.parameters.min_graded}}"
+              - --max-bad
+              - "{{job.parameters.max_bad}}"
+              - --smoke-question
+              - "{{job.parameters.smoke_question}}"
+              - --max-data-age-hours
+              - "{{job.parameters.max_data_age_hours}}"
+              - --record-to
+              - "{{job.parameters.record_to}}"
+              - --target
+              - ${bundle.target}
+              - --version
+              - "{{job.parameters.version}}"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - databricks-sdk>=0.145.0

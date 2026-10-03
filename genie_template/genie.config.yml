@@ -1,0 +1,129 @@
+# =====================================================================================================
+#  genie.config.yml  ·  THE ONE FILE YOU EDIT FOR A NEW GENIE PROJECT
+# =====================================================================================================
+#  Everything that differs between Genie projects, or between environments, is set here. The rest of
+#  the template (databricks.yml, resources/, src/, scripts/, .github/workflows/, notebooks/) reads these
+#  values and needs no editing.
+#
+#  It is a Declarative Automation Bundle file (databricks.yml includes it), so
+#      databricks bundle validate -t <sandbox | dev | qa | prod>
+#  checks it and prints every resolved value. Lines marked  # <- EDIT  are the ones to change.
+#
+#    1  project          the bundle's name (also used for service principals and job names)
+#    2  space            title and description of the Genie space
+#    3  data             catalog per environment, schema, SQL warehouse
+#    4  access           the groups that use, build and deploy the space
+#    5  quality gate     benchmark accuracy that qa must reach before prod; the smoke-test question
+#    6  monitoring       where results are recorded, freshness limit, nightly schedule, alert e-mails
+#    7  environments     per-environment values: workspace, catalog, title suffix, alerts
+#
+#  The space's content (tables, instructions, example SQL, benchmarks) is in space/genie_space.yml.
+# =====================================================================================================
+
+# ---- 1. Project -------------------------------------------------------------------------------------
+bundle:
+  name: acme-orders-genie                       # <- EDIT: lowercase letters, digits and dashes
+
+variables:
+  # ---- 2. The Genie space ---------------------------------------------------------------------------
+  space_title:
+    description: Title business users see; each environment appends title_suffix (section 7)
+    default: Acme Orders Assistant              # <- EDIT
+  space_description:
+    description: Shown under the title in Genie; say what the space can and cannot answer
+    default: >-
+      Ask about orders, revenue and customers by market segment, region and nation.
+      Amounts are in USD. Not covered: suppliers, shipping costs.
+    # <- EDIT (the text above)
+
+  # ---- 3. Data ---------------------------------------------------------------------------------------
+  catalog:
+    description: Catalog of this environment's data, set per environment in section 7. The space's content
+      refers to it as ${var.catalog}, so one definition serves every environment.
+  schema:
+    description: Schema of the space's tables, written ${var.schema} in the content. Use the same name in every
+      environment (one catalog per environment), or set it per environment (one catalog, a schema per environment).
+    default: tpch_demo                          # <- EDIT
+  warehouse_name:
+    description: Name of the SQL warehouse the space runs on (a serverless warehouse is recommended)
+    default: Serverless Starter Warehouse       # <- EDIT (or per environment)
+  warehouse_id:
+    description: Derived from warehouse_name; do not edit
+    lookup:
+      warehouse: ${var.warehouse_name}
+  title_suffix:
+    description: Set per environment in section 7, so dev, qa and prod can't be confused
+    default: ""
+
+  # ---- 4. Access -------------------------------------------------------------------------------------
+  users_group:
+    description: Business users; CAN_RUN on the space (the setup notebook also grants SELECT on the data)
+    default: acme-genie-users                   # <- EDIT
+  developers_group:
+    description: People who build the space; CAN_MANAGE in dev, CAN_VIEW in qa and prod
+    default: acme-genie-developers              # <- EDIT
+  deployers_group:
+    description: The CI/CD service principals (one per environment); CAN_MANAGE on everything deployed
+    default: acme-genie-deployers               # <- EDIT
+
+  # ---- 5. Quality gate (qa, before prod) ---------------------------------------------------------------
+  gate_min_accuracy:
+    description: Share of the automatically graded benchmarks that must be answered correctly (0.60 = 60%)
+    default: "0.60"                             # <- EDIT
+  gate_min_graded:
+    description: Benchmarks that must be gradable for the result to count
+    default: "3"
+  gate_max_bad:
+    description: Benchmarks that may be answered wrongly; -1 = no separate limit (the accuracy decides)
+    default: "-1"
+  smoke_question:
+    description: Asked after every prod deploy; the deploy is undone unless Genie answers it with SQL
+    default: How many orders were placed in 1995?   # <- EDIT
+
+  # ---- 6. Monitoring ---------------------------------------------------------------------------------
+  monitoring_schema:
+    description: Schema, in each environment's catalog, of the tables genie_quality_runs, genie_quality_results
+      and genie_table_health (created by the quality job)
+    default: genie_monitoring
+  max_data_age_hours:
+    description: Fail the health check when a table of the space was last changed longer ago; 0 = don't check
+    default: "0"                                # <- EDIT (for example 26 for a daily load)
+  monitor_cron:
+    description: When the quality job runs on its own in prod (Quartz cron syntax)
+    default: "0 0 6 * * ?"                      # <- EDIT: 06:00 every day
+  monitor_timezone:
+    default: UTC
+  alert_emails:
+    description: Who is e-mailed when the quality job fails; set per environment in section 7
+    type: complex
+    default: []
+
+# ---- 7. Environments ----------------------------------------------------------------------------------
+#  sandbox: each developer's own copy ("[dev <name>] ..."), deployed by hand.
+#  dev, qa, prod: deployed only by GitHub Actions, as each environment's service principal.
+#  Separate workspaces? Uncomment workspace.host per environment (and set DATABRICKS_HOST per GitHub environment).
+targets:
+  sandbox:
+    variables:
+      catalog: acme_dev                         # <- EDIT
+
+  dev:
+    # workspace:
+    #   host: https://<dev-workspace>.cloud.databricks.com
+    variables:
+      catalog: acme_dev                         # <- EDIT
+      title_suffix: " [DEV]"
+
+  qa:
+    # workspace:
+    #   host: https://<qa-workspace>.cloud.databricks.com
+    variables:
+      catalog: acme_qa                          # <- EDIT
+      title_suffix: " [QA]"
+
+  prod:
+    # workspace:
+    #   host: https://<prod-workspace>.cloud.databricks.com
+    variables:
+      catalog: acme_prod                        # <- EDIT
+      alert_emails: []                          # <- EDIT, for example [genie-team@acme.example]
