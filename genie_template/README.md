@@ -102,7 +102,7 @@ notebook copies into each environment's catalog.
 | 1 Project | `bundle.name`, `business_owner`, `technical_owner`, `support_contact` | `acme-orders-genie` | bundle, service principal names (`<name>-deployer-<env>`), deploy folder; owners in job descriptions and the runbook |
 | 2 Space | `space_title`, `space_description` | `Acme Orders Assistant` | what users see; each environment adds `title_suffix` |
 | 3 Data | `catalog` (per environment), `schema`, `warehouse_name` | `acme_dev` / `acme_qa` / `acme_prod`, `tpch_demo` | the space names tables `${var.catalog}.${var.schema}.<table>` |
-| 4 Access | `users_group`, `developers_group`, `deployers_group` | `acme-genie-users` ... | CAN_RUN; CAN_MANAGE in dev / CAN_VIEW elsewhere; the CI/CD principals |
+| 4 Access | `users_group`, `developers_group`, `deployers_group`, `deployer_extra_groups` | `acme-genie-users` ... | CAN_RUN; CAN_MANAGE in dev / CAN_VIEW elsewhere; the CI/CD principals; groups they also need (for example the row-level-security group that sees every row) |
 | 5 Quality gate | `gate_min_accuracy`, `gate_min_graded`, `gate_max_bad`, `smoke_question` | `0.60`, `3`, `-1` | qa must pass before prod; the smoke test after each prod deploy |
 | 6 Monitoring | `monitoring_schema`, `max_data_age_hours`, `monitor_cron`, `monitor_timezone`, `usage_lookback_hours`, `alert_emails`, `alert_subscribers`, `alerts_pause_status`, `alert_max_failed_share` | `genie_monitoring`, `26`, `0 0 6 * * ?` | result tables, freshness check, nightly jobs in prod, failure e-mails, SQL alerts |
 | 7 Environments | `targets.<env>`: `workspace.host`, `catalog`, `title_suffix`, `alerts_pause_status`, `alert_emails`, `alert_subscribers` | | per-environment values |

@@ -156,6 +156,9 @@ any Genie space. Everything project-specific is in one config file, `genie.confi
   version control, drift protection, rollback, monitoring and a runbook.
 
 Copy the folder to the root of a new repository and follow [`genie_template/README.md`](genie_template/README.md).
+[`examples/freshcart_genie_project/`](examples/freshcart_genie_project/) applies the template to this repository's own
+space: the FreshCart config, plus a script that builds the FreshCart Genie project. The tests run it end to end on
+FreshCart's data.
 
 ## Repository map
 
@@ -173,6 +176,7 @@ docs_src/ -> docs/   documentation templates and the rendered docs with real num
 notebooks/           every table step by step; end to end on Databricks; dev to prod with DAB and GitHub
 genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
 genie_template/      reusable template for any Genie project: one config file, bundle, workflows, tests, notebook
+examples/            the template applied to FreshCart (config + project builder)
 ```
 
 ## Design decisions in one list

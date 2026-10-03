@@ -1,5 +1,7 @@
 # =====================================================================================================
 #  genie.config.yml  ·  THE ONE FILE YOU EDIT FOR A NEW GENIE PROJECT
+#  This copy is filled in for FreshCart: the Genie space of this repository (genie_bundle/), on the data that the
+#  data bundle (databricks/) builds in freshcart_dev, freshcart_qa and freshcart. See README.md next to it.
 # =====================================================================================================
 #  Everything that differs between Genie projects, or between environments, is set here. The rest of
 #  the template (databricks.yml, resources/, src/, scripts/, .github/workflows/, notebooks/) reads these
@@ -24,28 +26,30 @@
 
 # ---- 1. Project -------------------------------------------------------------------------------------
 bundle:
-  name: acme-orders-genie                       # <- EDIT: lowercase letters, digits and dashes
+  name: freshcart-genie                         # <- EDIT: lowercase letters, digits and dashes
 
 variables:
   business_owner:
     description: Who decides what the space should answer (named in job descriptions, the dashboard, the runbook)
-    default: Acme Sales Operations             # <- EDIT
+    default: FreshCart Commercial Insights     # <- EDIT
   technical_owner:
     description: Team that maintains the space and is told when it breaks
-    default: Acme Data Platform                # <- EDIT
+    default: FreshCart Data Platform           # <- EDIT
   support_contact:
     description: Where users ask for help (channel, e-mail or ticket queue)
-    default: "#acme-genie-support"             # <- EDIT
+    default: "#freshcart-genie-help"           # <- EDIT
 
   # ---- 2. The Genie space ---------------------------------------------------------------------------
   space_title:
     description: Title business users see; each environment appends title_suffix (section 7)
-    default: Acme Orders Assistant              # <- EDIT
+    default: FreshCart Sales & Stock Assistant  # <- EDIT
   space_description:
     description: Shown under the title in Genie; say what the space can and cannot answer
     default: >-
-      Ask about orders, revenue and customers by market segment, region and nation.
-      Amounts are in USD. Not covered: suppliers, shipping costs.
+      Ask about sales, margin, baskets, promotions, loyalty and stock across FreshCart stores
+      and online. Figures are USD, exclude tax and use the FreshCart fiscal calendar.
+      You only see regions you have access to; if a question returns no rows, you may not
+      have access to that region. Not covered: labour, supplier deliveries, individual customers.
     # <- EDIT (the text above)
 
   # ---- 3. Data ---------------------------------------------------------------------------------------
@@ -55,7 +59,7 @@ variables:
   schema:
     description: Schema of the space's tables, written ${var.schema} in the content. Use the same name in every
       environment (one catalog per environment), or set it per environment (one catalog, a schema per environment).
-    default: tpch_demo                          # <- EDIT
+    default: semantic                           # <- EDIT
   warehouse_name:
     description: Name of the SQL warehouse the space runs on (a serverless warehouse is recommended)
     default: Serverless Starter Warehouse       # <- EDIT (or per environment)
@@ -70,18 +74,18 @@ variables:
   # ---- 4. Access -------------------------------------------------------------------------------------
   users_group:
     description: Business users; CAN_RUN on the space (the setup notebook also grants SELECT on the data)
-    default: acme-genie-users                   # <- EDIT
+    default: freshcart-business-users           # <- EDIT
   developers_group:
     description: People who build the space; CAN_MANAGE in dev, CAN_VIEW in qa and prod
-    default: acme-genie-developers              # <- EDIT
+    default: freshcart-genie-developers         # <- EDIT
   deployers_group:
     description: The CI/CD service principals (one per environment); CAN_MANAGE on everything deployed
-    default: acme-genie-deployers               # <- EDIT
+    default: freshcart-genie-deployers          # <- EDIT
   deployer_extra_groups:
     description: Other groups the service principals must be in, for example the row-level-security group that sees
       every row (the quality gate must see all the data). The setup notebook adds them; the groups must exist.
     type: complex
-    default: []                                 # <- EDIT if your tables have row filters, e.g. [all_regions]
+    default: [fc_all_regions]                   # row filters: the gate must see every region
 
   # ---- 5. Quality gate (qa, before prod) ---------------------------------------------------------------
   gate_min_accuracy:
@@ -89,13 +93,13 @@ variables:
     default: "0.60"                             # <- EDIT
   gate_min_graded:
     description: Benchmarks that must be gradable for the result to count
-    default: "3"
+    default: "4"
   gate_max_bad:
     description: Benchmarks that may be answered wrongly; -1 = no separate limit (the accuracy decides)
     default: "-1"
   smoke_question:
     description: Asked after every prod deploy; the deploy is undone unless Genie answers it with SQL
-    default: How many orders were placed in 1995?   # <- EDIT
+    default: What were net sales and margin by region last week?   # <- EDIT
 
   # ---- 6. Monitoring ---------------------------------------------------------------------------------
   monitoring_schema:
@@ -104,10 +108,10 @@ variables:
     default: genie_monitoring
   max_data_age_hours:
     description: Fail the health check when a table of the space was last changed longer ago; 0 = don't check
-    default: "0"                                # <- EDIT (for example 26 for a daily load)
+    default: "26"                               # the refresh job loads daily at 05:00 UTC
   monitor_cron:
     description: When the quality and usage jobs run on their own in prod (Quartz cron syntax)
-    default: "0 0 6 * * ?"                      # <- EDIT: 06:00 every day
+    default: "0 30 6 * * ?"                     # 06:30 every day, after the 05:00 refresh
   monitor_timezone:
     default: UTC
   usage_lookback_hours:
@@ -136,27 +140,27 @@ variables:
 targets:
   sandbox:
     variables:
-      catalog: acme_dev                         # <- EDIT
+      catalog: freshcart_dev                    # <- EDIT
 
   dev:
     # workspace:
     #   host: https://<dev-workspace>.cloud.databricks.com
     variables:
-      catalog: acme_dev                         # <- EDIT
+      catalog: freshcart_dev                    # <- EDIT
       title_suffix: " [DEV]"
 
   qa:
     # workspace:
     #   host: https://<qa-workspace>.cloud.databricks.com
     variables:
-      catalog: acme_qa                          # <- EDIT
+      catalog: freshcart_qa                     # <- EDIT
       title_suffix: " [QA]"
 
   prod:
     # workspace:
     #   host: https://<prod-workspace>.cloud.databricks.com
     variables:
-      catalog: acme_prod                        # <- EDIT
+      catalog: freshcart                        # <- EDIT
       alerts_pause_status: UNPAUSED
-      alert_emails: []                          # <- EDIT, for example [genie-team@acme.example]
-      alert_subscribers: []                     # <- EDIT, for example [{user_email: dana@acme.example}]
+      alert_emails: []                          # <- EDIT, for example [genie-team@freshcart.example]
+      alert_subscribers: []                     # <- EDIT, for example [{user_email: dana@freshcart.example}]

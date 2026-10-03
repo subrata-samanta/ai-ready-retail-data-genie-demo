@@ -129,9 +129,10 @@ class _DBUtils:
 
 
 def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None, until: str | None = None,
-                 setup=None, notebook: Path = NOTEBOOK) -> tuple[dict, str, object]:
+                 setup=None, notebook: Path = NOTEBOOK, spark=None) -> tuple[dict, str, object]:
     """Run the notebook's Python cells in order (until the markdown cell containing `until`, if given), from the
-    notebook's folder. `setup(workspace)` runs first, to prepare the stand-in workspace."""
+    notebook's folder. `setup(workspace)` runs first, to prepare the stand-in workspace; `spark` replaces the default
+    stand-in Spark."""
     from fake_workspace import FakeWorkspace, FreshCartEvaluator
     ws = FakeWorkspace.start(evaluator=FreshCartEvaluator())
     if setup:
@@ -144,7 +145,7 @@ def run_notebook(cli: str, widgets: dict, extra_replacements: dict | None = None
                     'WORK = Path("/tmp/genie_template")': f'WORK = Path({str(work)!r})',
                     'VOLUMES = Path("/Volumes")': f'VOLUMES = Path({str(volumes)!r})',
                     **(extra_replacements or {})}
-    spark = _Spark()
+    spark = spark or _Spark()
     ns = {"spark": spark, "dbutils": _DBUtils(widgets, ws.state.secret_scopes), "display": lambda *a, **k: None,
           "displayHTML": lambda *a, **k: None, "__name__": "__notebook__"}
     out = io.StringIO()

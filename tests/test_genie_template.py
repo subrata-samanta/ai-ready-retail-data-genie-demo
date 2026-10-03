@@ -212,6 +212,14 @@ def _requirements():
     return cli
 
 
+def _first_promoted_question(space: dict) -> str:
+    """What part D ships: the first benchmark (or example) question that is not a sample question yet."""
+    asked = {" ".join(q["question"]) for q in space.get("config", {}).get("sample_questions", [])}
+    pool = [" ".join(q["question"]) for q in space.get("benchmarks", {}).get("questions", [])] + \
+           [" ".join(q["question"]) for q in space.get("instructions", {}).get("example_question_sqls", [])]
+    return next(q for q in pool if q not in asked)
+
+
 def test_template_notebook_is_well_formed():
     from test_databricks_notebook import cells
     kinds = [k for k, _ in cells(NOTEBOOK)]
@@ -267,7 +275,7 @@ def test_template_notebook_end_to_end_against_stand_ins():
     # F: the UI edit in dev became a sync pull request with a snapshot tag
     sync = next(p for p in g.pulls.values() if p["head"]["ref"] == "genie/dev-sync")
     assert sync["state"] == "open" and any(t.startswith("genie-dev-snapshot-") for t in g.tags)
-    assert "Edited in the dev UI" in g.file_at("genie/dev-sync") and "acme_dev" not in g.file_at("genie/dev-sync")
+    assert "Edited in the dev Genie UI" in g.file_at("genie/dev-sync") and "acme_dev" not in g.file_at("genie/dev-sync")
     # G: the prod edit blocked the release; allow_drift overwrote it
     assert "blocked by the drift gate, as intended" in out
     prod = next(s for s in ws.state.spaces.values() if s["title"] == T.space_title("prod"))
@@ -297,7 +305,7 @@ def test_template_notebook_dry_run_changes_nothing():
     assert set(g.branches) == {"work"} and not g.environments and not g.pulls and not g.runs and not g.rulesets
     for expected in ("[dry run] create group acme-genie-users", "[dry run] create branch main", "[dry run] protect main",
                      "[dry run] protect the release tags", "[dry run] open the pull request",
-                     "+ added sample question: Which nation has the most customers?",
+                     f"+ added sample question: {_first_promoted_question(T.load_space())}",
                      "[dry run] GRANT USE CATALOG ON CATALOG `acme_prod`"):
         assert expected in out, expected
 

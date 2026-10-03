@@ -298,6 +298,7 @@ print(f"GitHub {REPO_NAME} as {user['login']} (admin); default branch {repo['def
 # MAGIC |---|---|---|
 # MAGIC | Groups | `users_group`, `developers_group`, `deployers_group` | permissions are given to groups, never to people |
 # MAGIC | One service principal per environment | `<project>-deployer-dev`, `-qa`, `-prod` | each pipeline stage signs in as its own identity: a leaked qa credential cannot touch prod |
+# MAGIC | Extra groups of the deployers | `deployer_extra_groups` (e.g. the row-level-security group that sees every row) | the quality gate must see all the data the benchmarks ask about |
 # MAGIC | Catalogs and schemas | `catalog` per environment, `schema`, `monitoring_schema` | created once by you (CI never creates catalogs) |
 # MAGIC | Monitoring tables | `genie_quality_runs`, `genie_quality_results`, `genie_table_health`, `genie_usage_messages` | created empty now, so the dashboard and alerts work before the first job run |
 # MAGIC | Grants | deployer: read the space's data, own the monitoring schema; users: read the space's data | Genie answers with the asking user's own permissions |
@@ -308,7 +309,7 @@ print(f"GitHub {REPO_NAME} as {user['login']} (admin); default branch {repo['def
 # MAGIC is not offered; data grants to workspace groups are then skipped.
 # MAGIC
 # MAGIC With **example_data = yes**, each environment gets the TPC-H sample tables (`samples.tpch`) in `<catalog>.<schema>`,
-# MAGIC which is what the example space uses.
+# MAGIC which is what the example space uses. It is ignored as soon as your space no longer uses those tables.
 
 # COMMAND ----------
 
@@ -397,6 +398,9 @@ EXAMPLE_TABLES = ["customer", "orders", "nation", "region"]
 sys.path.insert(0, str(PROJECT_DIR / "src"))
 import genie_quality, genie_usage                # the jobs' code: the monitoring tables' definitions
 MONITORING_TABLES = {**genie_quality.TABLES, genie_usage.TABLE: genie_usage.DDL}
+USES_EXAMPLE = {f"{T.CATALOG_REF}.{T.SCHEMA_REF}.{t}" for t in EXAMPLE_TABLES} <= set(T.data_sources(SPACE))
+if EXAMPLE_DATA and not USES_EXAMPLE:
+    print("example_data = yes is ignored: the space does not use the example tables (your own data is used)")
 DEPLOYERS, SECRETS = {}, {}                      # env -> service principal; env -> OAuth secret (memory only)
 for env in ENVIRONMENTS:
     c = CFG[env]
@@ -411,13 +415,22 @@ for env in ENVIRONMENTS:
         DEPLOYERS[env] = sp
         if APPLY and GROUP_IDS["deployers"]:
             add_member(GROUP_IDS["deployers"], sp.id)
+        for g in c.get("deployer_extra_groups") or []:
+            found = workspace_view(g)
+            if not found:
+                print(f"  WARNING: group {g} (deployer_extra_groups) does not exist; create it and re-run this cell")
+            elif APPLY:
+                add_member(found[0], sp.id)
+            else:
+                print(f"  [dry run] add {name} to {g}")
     else:
-        print(f"  [dry run] create service principal {name}, add it to {GROUPS['deployers']}")
+        extra = ", ".join(c.get("deployer_extra_groups") or [])
+        print(f"  [dry run] create service principal {name}, add it to {GROUPS['deployers']}" + (f", {extra}" if extra else ""))
     sql(f"CREATE CATALOG IF NOT EXISTS `{cat}`")
     sql(f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{mon}`")
     for table, ddl in MONITORING_TABLES.items():
         sql(f"CREATE TABLE IF NOT EXISTS `{cat}`.`{mon}`.`{table}` ({ddl})")
-    if EXAMPLE_DATA:
+    if EXAMPLE_DATA and USES_EXAMPLE:
         sql(f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{sch}`")
         for t in EXAMPLE_TABLES:
             sql(f"CREATE TABLE IF NOT EXISTS `{cat}`.`{sch}`.`{t}` AS SELECT * FROM samples.tpch.{t}")
@@ -571,14 +584,26 @@ print("definition OK" if not errors else f"{len(errors)} error(s): fix them befo
 
 # COMMAND ----------
 
+import check_sql                                 # the same queries and parameter defaults genie-ci uses
+
+
+def typed(value: str, type_hint: str):
+    t = (type_hint or "STRING").upper()
+    return int(value) if t in ("INT", "INTEGER", "BIGINT", "LONG", "SMALLINT") else \
+        float(value) if t in ("DOUBLE", "FLOAT", "DECIMAL") else value
+
+
 rendered = T.for_target(NEW_SPACE, "dev")
 results = []
-for label, statement in T.sql_statements(rendered):
-    if re.search(r"(?<!:):[a-zA-Z_]\w*", statement):
-        results.append({"query": label, "result": "skipped (has parameters)"})
+for item in check_sql.statements(rendered):
+    label = item["label"]
+    if item["params"] is None:
+        results.append({"query": label, "result": "skipped (parameters without default values)"})
         continue
     try:
-        n = len(spark.sql(statement).limit(5).collect())
+        args = {n: typed(v, t) for n, (v, t) in item["params"].items()}
+        df = spark.sql(item["sql"], args=args) if args else spark.sql(item["sql"])
+        n = len(df.limit(5).collect())
         results.append({"query": label, "result": f"ok ({n} row(s) shown)"})
     except Exception as e:                       # noqa: BLE001
         results.append({"query": label, "result": "FAILED: " + str(e).splitlines()[0][:160]})
@@ -649,8 +674,8 @@ else:
 # MAGIC    --> waiting for approval (prod) --approve--> prod (drift gate, deploy, smoke) --> tag + GitHub release
 # MAGIC ```
 # MAGIC
-# MAGIC The change: the imported space (part C), or else a new sample question, the smallest change that still goes
-# MAGIC through every stage. The first release creates the space in dev, qa and prod. The helpers below wait for GitHub and
+# MAGIC The change: the imported space (part C), or else one of the space's benchmark questions promoted to a sample
+# MAGIC question, the smallest change that still goes through every stage. The first release creates the space in dev, qa and prod. The helpers below wait for GitHub and
 # MAGIC print each change of state; re-run a cell to keep waiting.
 
 # COMMAND ----------
@@ -720,15 +745,16 @@ def space_at(ref: str) -> dict:
 
 # COMMAND ----------
 
-CANDIDATES = ["Which nation has the most customers?", "What is the average order value by market segment?",
-              "How many urgent orders were placed each year?"]
 BASE = base_branch()
 current = gh("GET", f"{R}/contents/{SPACE_PATH}?ref={BASE}")            # the file on main, and its blob sha
 on_main = T.space_from_text(base64.b64decode(current["content"]).decode())
 target_space = T.copy_space(NEW_SPACE if IMPORT_ID else on_main)
 if not IMPORT_ID:
+    # the change: promote a benchmark (or example) question to a sample question users see in the space
     asked = {" ".join(q["question"]) for q in target_space.get("config", {}).get("sample_questions", [])}
-    new_q = next((q for q in CANDIDATES if q not in asked), None)
+    pool = [" ".join(q["question"]) for q in target_space.get("benchmarks", {}).get("questions", [])] + \
+           [" ".join(q["question"]) for q in target_space.get("instructions", {}).get("example_question_sqls", [])]
+    new_q = next((q for q in pool if q not in asked), None)
     if new_q:
         target_space.setdefault("config", {}).setdefault("sample_questions", []).append({"id": T.new_id(), "question": [new_q]})
 CHANGES = T.diff(on_main, target_space)
@@ -857,7 +883,7 @@ print("\n".join(T.diff(space_at(OLD) if OLD else {}, space_at(NEW))) or "  (none
 
 # COMMAND ----------
 
-UI_QUESTION = "Edited in the dev UI: which orders are the most urgent?"
+UI_QUESTION = "Edited in the dev Genie UI (template notebook, part F)"
 dev = live_space("dev")
 if dev and APPLY:
     content = json.loads(dev.serialized_space)
