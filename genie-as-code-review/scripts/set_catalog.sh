@@ -17,5 +17,7 @@ if [[ -z "$catalog" || "$catalog" == "null" ]]; then
   echo "no catalog variable for target $target" >&2
   exit 1
 fi
-sed -i -E "s/\bfreshcart_dev\.(gold|semantic)\./${catalog}.\1./g" "$space_file"
+# (written to a temporary file rather than with sed -i, so it works with GNU and macOS sed alike)
+sed -E "s/freshcart_dev\.(gold|semantic)\./${catalog}.\1./g" "$space_file" > "$space_file.tmp"
+mv "$space_file.tmp" "$space_file"
 echo "Space for target $target now reads catalog $catalog"

@@ -10,6 +10,12 @@ FreshCart space with more safeguards: a drift check before every deploy, the qua
 inside Databricks, an hourly sync of UI edits, and a rollback workflow. Start here; move to that one
 when you need those safeguards.
 
+**New to CI/CD?** The notebook
+[`notebooks/Genie_CICD_Simple_Bundle_Walkthrough.ipynb`](../notebooks/Genie_CICD_Simple_Bundle_Walkthrough.ipynb)
+explains this whole process step by step and runs it: the real Databricks CLI deploys this bundle and executes this
+folder's workflow against three local stand-in workspaces (first release, the authoring loop, a bad change stopped by
+the QA gate, rollback, drift, a broken pull request).
+
 ```
 databricks.yml                                bundle + engine:direct + dev/qa/prod targets
 resources/freshcart_assistant.genie_space.yml the genie_spaces resource (-> file_path, warehouse, permissions)
@@ -185,6 +191,8 @@ From the repository root, `python tests/run_tests.py` runs `tests/test_simple_ge
 - with the Databricks CLI installed, the workflow's own steps run job by job against a stand-in
   workspace (`tests/fake_workspace.py`): deploy to dev, qa and prod on their own catalogs, the smoke
   test, the benchmark gate (passing, and failing after a bad UI edit), and the `generate` round trip.
+
+`tests/test_simple_cicd_notebook.py` also runs the walkthrough notebook from top to bottom.
 
 The stand-in workspace answers questions with the space's trusted example SQL; it does not test
 Genie itself. Run the smoke test and the gate against a real workspace before relying on them.
