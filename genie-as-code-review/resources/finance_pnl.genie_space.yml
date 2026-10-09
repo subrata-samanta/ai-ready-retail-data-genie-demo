@@ -1,0 +1,12 @@
+# Genie space resource — the single starring artifact of this bundle.
+# The serialized definition (tables, instructions, sample questions, golden SQL)
+# lives in src/finance_pnl.geniespace.json. Curate in the UI, then run
+#   databricks bundle generate genie-space --resource finance_pnl --force
+# to capture those edits back into that JSON before promoting.
+resources:
+  genie_spaces:
+    finance_pnl:
+      title: "Finance & P&L Analytics"
+      description: "Ask natural-language questions about net revenue, COGS, gross margin, trade spend and opex across brands and regions."
+      file_path: ../src/finance_pnl.geniespace.json
+      warehouse_id: ${var.warehouse_id}

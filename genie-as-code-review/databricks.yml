@@ -1,0 +1,60 @@
+# =============================================================================
+# Genie-as-Code — Finance & P&L Analytics
+# Audience: Data Science / Data Engineering
+# Purpose:  Manage an AI/BI Genie space as a versioned, promotable DAB resource.
+#           Author in dev -> curate in UI -> `bundle generate` back to source ->
+#           test -> promote to QA -> Prod. See README.md for the full lifecycle.
+#
+# NOTE: Genie spaces require Databricks CLI >= 1.3.0 and the `direct` deploy
+#       engine (Terraform engine is NOT supported for genie_spaces).
+#
+# Fill in the workspace hosts/profiles under `targets:` below before deploying.
+# =============================================================================
+
+bundle:
+  name: genie-pnl-demo
+  # Genie spaces are only deployable with the direct engine (GA + default on
+  # CLI >= 1.3.0; set explicitly so the requirement is visible).
+  engine: direct
+
+include:
+  - resources/*.yml
+
+variables:
+  # Catalog + schema are kept IDENTICAL across all targets. The Genie space's
+  # table identifiers live inside the serialized JSON and are not substituted,
+  # so every target must expose the same fully-qualified table names.
+  catalog:
+    description: "Unity Catalog catalog holding the Finance/P&L tables."
+    default: finance_demo
+  schema:
+    description: "Schema holding the Finance/P&L tables."
+    default: pnl
+  warehouse_id:
+    description: "Serverless SQL warehouse that backs the Genie space."
+    # Resolved per-target by name so each workspace finds its own warehouse.
+    # Change the name below to a serverless warehouse that exists in each target.
+    lookup:
+      warehouse: "Shared Endpoint"
+
+targets:
+  # Authoring environment. development mode prefixes resource names with the
+  # deploying user so the data team doesn't clobber each other's spaces.
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://<your-dev-workspace>.cloud.databricks.com
+      profile: <your-dev-profile>
+
+  qa:
+    mode: production
+    workspace:
+      host: https://<your-qa-workspace>.cloud.databricks.com
+      profile: <your-qa-profile>
+
+  prod:
+    mode: production
+    workspace:
+      host: https://<your-prod-workspace>.cloud.databricks.com
+      profile: <your-prod-profile>
