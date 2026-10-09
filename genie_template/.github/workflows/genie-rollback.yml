@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write                              # move the tag genie-deployed-<environment>
   id-token: write
 
 jobs:
@@ -101,6 +101,8 @@ jobs:
         run: databricks bundle deploy -t "$TARGET"
       - id: space
         run: python scripts/space_url.py -t "$TARGET" >> "$GITHUB_OUTPUT"
+      - name: Record what the environment runs
+        run: git tag -f "genie-deployed-$TARGET" "$REF" && git push -f origin "genie-deployed-$TARGET"
       - name: Smoke test
         if: inputs.environment != 'dev'
         run: databricks bundle run genie_quality -t "$TARGET" --params mode=smoke

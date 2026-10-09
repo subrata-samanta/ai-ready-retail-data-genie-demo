@@ -88,6 +88,9 @@ jobs:
         run: |
           databricks bundle validate -t dev
           databricks bundle deploy -t dev
+      - name: Record what dev runs (the dev sync's base)
+        if: steps.cfg.outputs.ready == 'true'
+        run: git tag -f genie-deployed-dev "$GITHUB_SHA" && git push -f origin genie-deployed-dev
 
   # 3. QA: data, then Genie with drift gate, benchmark gate and smoke test.
   qa:
@@ -140,6 +143,9 @@ jobs:
         if: steps.cfg.outputs.ready == 'true'
         working-directory: genie_bundle
         run: databricks bundle deploy -t qa
+      - name: Record what qa runs
+        if: steps.cfg.outputs.ready == 'true'
+        run: git tag -f genie-deployed-qa "$GITHUB_SHA" && git push -f origin genie-deployed-qa
       - id: gate
         name: Benchmark gate (bundle job)
         if: steps.cfg.outputs.ready == 'true'
@@ -207,6 +213,8 @@ jobs:
             fi
             exit 1
           fi
+      - name: Record what prod runs
+        run: git tag -f genie-deployed-prod "$GITHUB_SHA" && git push -f origin genie-deployed-prod
       - name: Tag the release
         run: |
           TAG="genie-prod-$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"

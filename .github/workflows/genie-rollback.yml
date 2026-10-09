@@ -42,7 +42,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write                              # move the tag genie-deployed-<environment>
   id-token: write
 
 jobs:
@@ -117,6 +117,9 @@ jobs:
         if: inputs.what != 'data-bundle'
         working-directory: genie_bundle
         run: databricks bundle deploy -t "$TARGET"
+      - name: Record what the environment runs
+        if: inputs.what != 'data-bundle'
+        run: git tag -f "genie-deployed-$TARGET" "$REF" && git push -f origin "genie-deployed-$TARGET"
       - name: Smoke test
         if: inputs.environment != 'dev' && inputs.what != 'data-bundle'
         working-directory: genie_bundle

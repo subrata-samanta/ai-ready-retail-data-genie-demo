@@ -63,6 +63,9 @@ class FakeGitHub:
         self.settings: dict[str, dict] = {}
         self.on_deploy = lambda env, text, allow_drift: True
         self.on_dev_sync = lambda: None
+        # merge_texts(base, main, live) -> text: how the sync applies UI edits onto main (sync_from_workspace.py does
+        # it item by item). None: the live export replaces the file (the behaviour of genie_bundle's sync).
+        self.merge_texts = None
         self._public = public
         self.lock = threading.Lock()
         handler = type("H", (_Handler,), {"gh": self})
@@ -113,15 +116,21 @@ class FakeGitHub:
                 j.update(status="completed", conclusion="skipped")
         run.update(status="completed", conclusion="success" if ok else "failure", waiting_env=None)
 
+    def _deployed(self, env: str, sha: str) -> None:
+        self.tags[f"genie-deployed-{env}"] = sha                    # what the release workflow records
+
     def start_release(self, sha: str, event: str, inputs: dict | None = None):
         inputs = inputs or {}
         run = self._new_run("genie-release.yml", "genie-release", sha, event, ["dev-snapshot", "dev", "qa", "prod"], inputs)
         allow = str(inputs.get("allow_drift", "false")).lower() == "true"
         text = self.file_at(sha)
         self._job(run, "dev-snapshot", True)
-        if not (self._job(run, "dev", self.on_deploy("dev", text, True)) and
-                self._job(run, "qa", self.on_deploy("qa", text, allow))):
+        if not self._job(run, "dev", self.on_deploy("dev", text, True)):
             return self._finish(run, False)
+        self._deployed("dev", sha)
+        if not self._job(run, "qa", self.on_deploy("qa", text, allow)):
+            return self._finish(run, False)
+        self._deployed("qa", sha)
         self._wait(run, "prod")
 
     def start_rollback(self, inputs: dict):
@@ -133,12 +142,19 @@ class FakeGitHub:
         if env == "prod":
             self._wait(run, "prod")
         else:
-            self._finish(run, self._job(run, "rollback", self.on_deploy(env, self.file_at(ref), True)))
+            ok = self._job(run, "rollback", self.on_deploy(env, self.file_at(ref), True))
+            if ok:
+                self._deployed(env, self.resolve(ref))
+            self._finish(run, ok)
 
     def dev_sync(self):
         run = self._new_run("genie-dev-sync.yml", "genie-dev-sync", self.branches["main"], "workflow_dispatch",
                             ["sync"], {})
         text = self.on_dev_sync()
+        base_sha = self.tags.get("genie-deployed-dev")
+        if text is not None and self.merge_texts and base_sha:
+            base = self.file_at(base_sha)
+            text = None if text == base else self.merge_texts(base, self.file_at("main"), text)   # only UI edits
         if text is not None and text != self.file_at("main"):
             self.branches["genie/dev-sync"] = self.branches["main"]
             sha = self.commit("genie/dev-sync", {self.space_path: text}, "Genie: changes made in the dev space")
@@ -158,6 +174,7 @@ class FakeGitHub:
             allow = str(run["inputs"].get("allow_drift", "false")).lower() == "true"
             ok = self._job(run, "prod", self.on_deploy("prod", self.file_at(run["head_sha"]), allow))
             if ok:
+                self._deployed("prod", run["head_sha"])
                 n = sum(1 for t in self.tags if t.startswith("genie-prod-"))
                 tag = f"genie-prod-{datetime.now(timezone.utc):%Y%m%d.%H%M%S}.{n:02d}-{run['head_sha'][:7]}"
                 self.tags[tag] = run["head_sha"]
@@ -167,6 +184,8 @@ class FakeGitHub:
                                              "creator": {"login": "github-actions[bot]"}})
         else:
             ok = self._job(run, "rollback", self.on_deploy(env, self.file_at(run["inputs"]["ref"]), True))
+            if ok:
+                self._deployed(env, self.resolve(run["inputs"]["ref"]))
         self._finish(run, ok)
 
     def _open_pr(self, title, head, base) -> dict:
@@ -355,6 +374,15 @@ class _Handler(BaseHTTPRequestHandler):
             # ---- environments, variables, secrets
             if parts[0] == "environments":
                 env = parts[1]
+                if len(parts) == 2 and method == "GET":         # GitHub's shape: protection rules
+                    if env not in g.environments:
+                        return self._send(404, {"message": "Not Found"})
+                    e = g.environments[env]
+                    rules = [{"type": "required_reviewers", "reviewers": [
+                        {"type": r["type"], "reviewer": {"login": g.login, "id": r["id"]}} for r in e["reviewers"]]}] \
+                        if e.get("reviewers") else []
+                    return self._send(200, {"name": env, "protection_rules": rules,
+                                            "deployment_branch_policy": e.get("deployment_branch_policy")})
                 if len(parts) == 2:
                     g.environments[env] = body
                     g.env_keys.setdefault(env, g._public.PrivateKey.generate())

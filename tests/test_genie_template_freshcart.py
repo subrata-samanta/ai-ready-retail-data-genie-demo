@@ -163,7 +163,7 @@ def test_freshcart_project_bundle_with_the_real_databricks_cli():
             # exporting the deployed space gives back the file in git, unchanged: syncs cause no churn
             before = (project / SPACE_PATH).read_text()
             out = run(sys.executable, "scripts/sync_from_workspace.py", "-t", "qa")
-            assert "0 change(s)" in out and (project / SPACE_PATH).read_text() == before, out
+            assert "nothing to sync" in out and (project / SPACE_PATH).read_text() == before, out
         finally:
             ws.stop()
 
@@ -238,6 +238,8 @@ def _stand_ins(ws, holder, replacements, project: Path, T, token: str, files: di
         return T.dumps_space(T.from_target(json.loads(sp["serialized_space"]), "dev")) if sp else None
 
     g.on_deploy, g.on_dev_sync = on_deploy, on_dev_sync
+    g.merge_texts = lambda base, main, live: T.dumps_space(
+        T.merge3(T.space_from_text(base), T.space_from_text(main), T.space_from_text(live))[0])
     return g
 
 

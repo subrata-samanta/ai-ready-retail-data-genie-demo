@@ -200,6 +200,8 @@ def _stand_ins(ws, holder, replacements, token):
         return T.dumps_space(T.from_target(json.loads(sp["serialized_space"]), "dev")) if sp else None
 
     g.on_deploy, g.on_dev_sync = on_deploy, on_dev_sync
+    g.merge_texts = lambda base, main, live: T.dumps_space(
+        T.merge3(T.space_from_text(base), T.space_from_text(main), T.space_from_text(live))[0])
     return g
 
 
@@ -372,5 +374,141 @@ def test_template_adapts_to_one_catalog_with_a_schema_per_environment():
             assert res["bundle"]["name"] == "contoso-sales-genie"
             space = json.loads(res["resources"]["genie_spaces"][T.SPACE_RESOURCE]["serialized_space"])
             assert {i.rsplit(".", 1)[0] for i in T.data_sources(space)} == {"main.sales_qa"}
+        finally:
+            ws.stop()
+
+
+# --------------------------------------------------------------------------------- the CI/CD guide notebook
+GUIDE = TEMPLATE / "notebooks" / "Genie_CICD_Guide_source.py"
+
+
+def test_guide_notebook_is_well_formed_and_generic():
+    from test_databricks_notebook import cells
+    kinds = [k for k, _ in cells(GUIDE)]
+    assert kinds.count("pip") == 1 and kinds.index("pip") < kinds.index("py")
+    text = GUIDE.read_text(encoding="utf-8")
+    compile(text, str(GUIDE), "exec")
+    for chapter in ("# 3 · How the Genie version history is managed", "## 4.1 Way A · Sync the dev Genie UI with GitHub",
+                    "# 5 · Environment promotion: dev → qa → prod", "## 5.3 dev → qa", "## 5.4 qa → prod", "# 6 · Rollback"):
+        assert chapter in text, chapter
+    # the guide only reads: its only GitHub helper is a GET, and it never calls a changing API
+    assert "requests.get(" in text and not any(m in text for m in ("requests.post", "requests.put", "requests.patch",
+                                                                    "requests.request", "update_space", "bundle deploy\"",
+                                                                    "spark.sql(f\"CREATE", "spark.sql(f\"GRANT"))
+
+
+def test_guide_notebook_reads_only_the_local_project_without_setup():
+    cli = _requirements()
+    if cli is None:
+        print("      (Databricks CLI 1.14+ or PyNaCl not found: guide notebook run skipped)")
+        return
+    from test_databricks_notebook import run_notebook
+    ns, out, ws = run_notebook(cli, {}, notebook=GUIDE)
+    assert "GitHub: not configured (local files only)" in out
+    assert "deployed to prod  acme_prod.tpch_demo." in out and "in git            ${var.catalog}.${var.schema}." in out
+    assert "+ added sample question: A question added in this guide" in out and "~ changed text instruction" in out
+    assert out.count("skipped: set") >= 4
+    assert all(r["method"] == "GET" for r in ws.state.requests if r["path"].startswith("/api/")), "the guide only reads"
+
+
+def test_guide_notebook_explains_a_real_history():
+    """A repository with history: two prod releases, a change merged after them, an open dev sync PR, environments
+    with an approver. The guide shows it all, and changes nothing in GitHub or the workspace."""
+    cli = _requirements()
+    if cli is None:
+        print("      (Databricks CLI 1.14+ or PyNaCl not found: guide notebook run skipped)")
+        return
+    from test_databricks_notebook import run_notebook
+    holder, replacements = {}, {}
+
+    def setup(ws):
+        g = _stand_ins(ws, holder, replacements, "ghp-guide")
+        ws.state.secret_scopes["genie"] = {"github_token": "ghp-guide"}
+        g.branches["main"] = g.branches["work"]
+        g.default_branch = "main"
+        g.environments.update({"dev": {}, "qa": {"deployment_branch_policy": {"custom_branch_policies": True}},
+                               "prod": {"reviewers": [{"type": "User", "id": g.user_id}],
+                                        "deployment_branch_policy": {"custom_branch_policies": True}}})
+
+        def change(question):
+            space = T.space_from_text(g.file_at("main"))
+            space["config"]["sample_questions"].append({"id": T.new_id(question), "question": [question]})
+            return g.commit("main", {SPACE_PATH: T.dumps_space(space)}, f"Genie: add '{question}'")
+
+        for q in ("First released question", "Second released question"):
+            g.start_release(change(q), "push")
+            g.approve(g.runs[max(g.runs)])
+        change("Merged, not yet released")                          # on main, not in prod
+        dev = next(s for s in ws.state.spaces.values() if s["title"] == T.space_title("dev"))
+        edited = json.loads(dev["serialized_space"])
+        edited["config"]["sample_questions"].append({"id": T.new_id("ui"), "question": ["Edited in the dev UI"]})
+        dev["serialized_space"] = json.dumps(edited)
+        g.dev_sync()
+        holder["before"] = json.dumps([sorted(g.branches.items()), sorted(g.tags.items()), len(g.commits), len(g.runs),
+                                       [(p["number"], p["state"]) for p in g.pulls.values()], len(g.releases),
+                                       sorted(g.environments)], default=str)
+        holder["spaces"] = json.dumps(ws.state.spaces, sort_keys=True)
+        holder["requests"] = len(ws.state.requests)
+
+    try:
+        ns, out, ws = run_notebook(cli, {"github_repo": "acme/orders-genie"}, replacements, notebook=GUIDE, setup=setup)
+    finally:
+        if "g" in holder:
+            holder["g"].stop()
+    g = holder["g"]
+    assert "2 prod release(s)" in out and "1 dev snapshot(s)" in out and "== release genie-prod-" in out
+    assert "  dev runs commit" in out and " prod runs commit" in out and "(tag genie-deployed-prod)" in out
+    assert "merged on main but not yet in prod" in out and "+ added sample question: Merged, not yet released" in out
+    assert "dev: content" in out and " prod: content" in out and "= genie-prod-" in out.split(" prod: content", 1)[1].split("\n")[0]
+    assert "sync pull request #" in out and "+ added sample question: Edited in the dev UI" in out
+    change_list = out.split("  change list:", 1)[1].split("\n#", 1)[0]
+    assert "- removed" not in change_list, "the sync PR must not undo what was merged after the last deploy"
+    assert "prod: approvers ['acme']; deploys from selected branches (main)" in out
+    assert "  dev: approvers none; deploys from any branch" in out
+    assert "release run " in out and "prod: success" in out and "last deployment to  prod: commit" in out
+    # read-only: GitHub and the workspace are exactly as before the guide ran
+    after = json.dumps([sorted(g.branches.items()), sorted(g.tags.items()), len(g.commits), len(g.runs),
+                        [(p["number"], p["state"]) for p in g.pulls.values()], len(g.releases), sorted(g.environments)],
+                       default=str)
+    assert after == holder["before"] and json.dumps(ws.state.spaces, sort_keys=True) == holder["spaces"]
+    assert all(r["method"] == "GET" for r in ws.state.requests[holder["requests"]:] if r["path"].startswith("/api/"))
+
+
+def test_dev_sync_never_reverts_what_was_merged_after_the_last_deploy():
+    """The regression of the dev sync: dev runs commit A (tag genie-deployed-dev); B is merged to main; the release's
+    first step syncs dev. Without a UI edit there is nothing to sync; with one, the file becomes B + the UI edit."""
+    cli = _cli()
+    if cli is None:
+        print("      (Databricks CLI 1.14+ not found: dev sync regression test skipped)")
+        return
+    from fake_workspace import FakeWorkspace
+    ws = FakeWorkspace.start()
+    with tempfile.TemporaryDirectory() as tmp:
+        project = _copy_project(Path(tmp))
+        env = {**os.environ, "DATABRICKS_HOST": ws.host, "DATABRICKS_TOKEN": "test", "DATABRICKS_CLI": cli}
+        env.pop("DATABRICKS_CONFIG_PROFILE", None)
+
+        def run(*args):
+            p = subprocess.run(list(args), cwd=project, env=env, capture_output=True, text=True)
+            assert p.returncode == 0, f"{args}\n{p.stdout}\n{p.stderr}"
+            return p.stdout
+
+        git = lambda *a: run("git", "-c", "user.name=t", "-c", "user.email=t@example.com", *a)   # noqa: E731
+        try:
+            run(cli, "bundle", "deploy", "-t", "dev")                       # dev runs commit A ...
+            git("tag", "genie-deployed-dev")                                 # ... as the release records it
+            space = T.load_space(project / SPACE_PATH)
+            space["config"]["sample_questions"].append({"id": T.new_id("B"), "question": ["merged after the deploy"]})
+            T.save_space(space, project / SPACE_PATH)
+            git("commit", "-qam", "B")                                       # main moves on to B
+            b_text = (project / SPACE_PATH).read_text()
+            out = run(sys.executable, "scripts/sync_from_workspace.py", "-t", "dev", "--base", "genie-deployed-dev")
+            assert "nothing to sync" in out and (project / SPACE_PATH).read_text() == b_text, out
+            sid = json.loads(run(cli, "bundle", "summary", "-t", "dev", "-o", "json"))["resources"]["genie_spaces"][T.SPACE_RESOURCE]["id"]
+            ws.ui_edit(sid, lambda d: d["config"]["sample_questions"].append({"id": T.new_id("ui"), "question": ["UI edit"]}))
+            out = run(sys.executable, "scripts/sync_from_workspace.py", "-t", "dev", "--base", "genie-deployed-dev")
+            assert "1 edit(s) made in the dev Genie UI since genie-deployed-dev" in out, out
+            synced = T.load_space(project / SPACE_PATH)
+            assert T.diff(T.space_from_text(b_text), synced) == ["+ added sample question: UI edit"]
         finally:
             ws.stop()

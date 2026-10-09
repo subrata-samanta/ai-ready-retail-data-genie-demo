@@ -312,3 +312,42 @@ def test_check_sql_runs_every_query_with_parameter_defaults():
     sent = dict((s, p) for s, p in st.calls)
     assert [(p.name, p.value, p.type) for p in sent["SELECT :year AS y"]] == [("year", "1995", "INTEGER")]
     assert len(st.calls) == len(T.sql_statements(space)) - 1          # all but the one without defaults
+
+
+# ------------------------------------------------------------------------------ dev sync: UI edits onto main
+def _with_question(space, text, key=None):
+    s = T.copy_space(space)
+    s.setdefault("config", {}).setdefault("sample_questions", []).append({"id": T.new_id(key or text), "question": [text]})
+    return s
+
+
+def test_sync_applies_only_the_ui_edits_onto_main():
+    import sync_from_workspace as S
+    base = T.load_space()                                      # what the bundle last deployed to dev
+    main = _with_question(base, "merged on main after that deploy")
+    # no UI edit: the live space is the deployed version, so there is nothing to sync (main is not reverted)
+    assert S.plan(base, main, base) == (None, [], [])
+    # a UI edit: it is applied onto main, and main's own change stays
+    live = _with_question(base, "added in the UI")
+    merged, edits, conflicts = S.plan(base, main, live)
+    assert edits == ["+ added sample question: added in the UI"] and not conflicts
+    assert T.diff(main, merged) == ["+ added sample question: added in the UI"]
+    # a removal in the UI is applied too
+    first = base["config"]["sample_questions"][0]
+    live = T.copy_space(base)
+    live["config"]["sample_questions"] = [q for q in live["config"]["sample_questions"] if q["id"] != first["id"]]
+    merged, _, _ = S.plan(base, main, live)
+    assert first["id"] not in {q["id"] for q in merged["config"]["sample_questions"]}
+    assert "merged on main after that deploy" in json.dumps(merged)
+
+
+def test_sync_reports_an_item_changed_on_both_sides_and_keeps_the_ui_version():
+    import sync_from_workspace as S
+    base = T.load_space()
+    q = base["config"]["sample_questions"][0]
+    main, live = T.copy_space(base), T.copy_space(base)
+    next(x for x in main["config"]["sample_questions"] if x["id"] == q["id"])["question"] = ["main's wording"]
+    next(x for x in live["config"]["sample_questions"] if x["id"] == q["id"])["question"] = ["the UI's wording"]
+    merged, edits, conflicts = S.plan(base, main, live)
+    assert len(conflicts) == 1 and "kept the UI's" in conflicts[0]
+    assert next(x for x in merged["config"]["sample_questions"] if x["id"] == q["id"])["question"] == ["the UI's wording"]

@@ -2,7 +2,9 @@
 #
 # Hourly, on demand, and at the start of every release:
 #   1. scripts/sync_from_workspace.py -t dev     (databricks bundle summary + bundle generate genie-space)
-#      exports the dev space and writes resources/freshcart_assistant.space.yml with ${var.catalog}
+#      exports the dev space and compares it with the version last deployed to dev (tag genie-deployed-dev): only
+#      real UI edits are applied, item by item, onto resources/freshcart_assistant.space.yml as it is on main, so a
+#      change merged since that deploy is never undone
 #   2. if it changed: commit it on the branch genie/dev-sync, tag the commit
 #      genie-dev-snapshot-<UTC time> (the version history of dev: every snapshot stays reachable and can
 #      be restored with genie-rollback, environment dev, to = that tag), and open/update a pull request.
@@ -43,6 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
+          fetch-depth: 0                       # the tag genie-deployed-dev: the sync's base
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -55,7 +58,7 @@ jobs:
           if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); nothing to sync"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
       - name: Export the dev space into the bundle
         if: steps.cfg.outputs.ready == 'true'
-        run: python genie_bundle/scripts/sync_from_workspace.py -t dev
+        run: python genie_bundle/scripts/sync_from_workspace.py -t dev --base genie-deployed-dev
       - name: Commit, tag and open the sync pull request
         if: steps.cfg.outputs.ready == 'true'
         run: |

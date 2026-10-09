@@ -6,8 +6,12 @@
 Steps, all with the Databricks CLI:
   1. `databricks bundle summary -t <target>`   -> the id of the space this bundle deployed
   2. `databricks bundle generate genie-space --existing-id <id>` -> the live space as JSON
-  3. replace the target's catalog (freshcart_dev.) with ${var.catalog}. and write
-     resources/freshcart_assistant.space.yml in canonical form; print what changed
+  3. replace the target's catalog (freshcart_dev.) with ${var.catalog}.
+  4. compare it with the version last deployed to the target: the git tag genie-deployed-<target>, which the release
+     and rollback workflows move after every deploy (--base to choose another ref; HEAD if there is none). No
+     difference: nothing to sync. Otherwise only those UI edits are applied, item by item, onto
+     resources/freshcart_assistant.space.yml as it is now, so changes merged since that deploy are never undone.
+     (--space-id <id> replaces the file with that space instead: an import.)
 
 Why not `bundle generate --resource ... --force` alone? It writes a .geniespace.json with the
 target's real catalog names, and a file referenced by file_path is not variable-resolved, so the
@@ -58,29 +62,60 @@ def export_space(target: str, space_id: str) -> dict:
         return json.loads(Path(tmp, "src", "export.geniespace.json").read_text(encoding="utf-8"))
 
 
-def sync(target: str, space_id: str | None = None, path: Path = T.SPACE_FILE) -> list[str] | None:
+def space_at(ref: str, path: Path = T.SPACE_FILE) -> dict | None:
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=T.BUNDLE_DIR, capture_output=True, text=True)
+    if top.returncode != 0:
+        return None
+    rel = path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
+    old = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=T.BUNDLE_DIR, capture_output=True, text=True)
+    if old.returncode != 0:
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as fh:
+        fh.write(old.stdout)
+    return T.load_space(Path(fh.name))
+
+
+def sync(target: str, space_id: str | None = None, path: Path = T.SPACE_FILE, base_ref: str | None = None):
+    """None if nothing is deployed; otherwise {base, edits, conflicts, written}."""
+    imported = space_id is not None
     space_id = space_id or deployed_space_id(target)
     if not space_id:
         return None                              # nothing deployed yet: nothing to sync
-    catalog = target_catalog(target)
-    live = export_space(target, space_id)
-    space = T.neutralise(live, catalog)
-    before = T.load_space(path) if path.exists() else {}
-    T.save_space(space, path)
-    return T.diff(before, space)
+    live = T.neutralise(export_space(target, space_id), target_catalog(target))
+    current = T.load_space(path) if path.exists() else {}
+    if imported:                                 # an import replaces the file
+        T.save_space(live, path)
+        return {"base": "the file", "edits": T.diff(current, live), "conflicts": [], "written": True}
+    ref = base_ref or f"genie-deployed-{target}"
+    base = space_at(ref, path)
+    if base is None:
+        ref, base = "HEAD (no deploy tag yet)", space_at("HEAD", path) or current
+    edits = T.diff(base, live)
+    if not edits:
+        return {"base": ref, "edits": [], "conflicts": [], "written": False}
+    merged, conflicts = T.merge3(base, current, live)
+    T.save_space(merged, path)
+    return {"base": ref, "edits": edits, "conflicts": conflicts, "written": True}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-t", "--target", default="dev")
-    ap.add_argument("--space-id", help="default: the space this bundle deployed to the target")
+    ap.add_argument("--space-id", help="import this space instead (replaces the file)")
+    ap.add_argument("--base", help="git ref of the version deployed to the target (default: genie-deployed-<target>)")
     args = ap.parse_args(argv)
-    changes = sync(args.target, args.space_id)
-    if changes is None:
+    result = sync(args.target, args.space_id, base_ref=args.base)
+    if result is None:
         print(f"the space is not deployed to {args.target} yet: nothing to sync")
         return 0
-    print(f"synced {args.target} into {T.SPACE_FILE.relative_to(T.REPO_ROOT)}: {T.count_changes(changes)} change(s)")
-    print("\n".join(changes))
+    if not result["written"]:
+        print(f"no edits in the {args.target} Genie UI since the last deploy ({result['base']}): nothing to sync")
+        return 0
+    print(f"synced {args.target} into {T.SPACE_FILE.relative_to(T.REPO_ROOT)} (base {result['base']}): "
+          f"{T.count_changes(result['edits'])} change(s)")
+    print("\n".join(result["edits"]))
+    for c in result["conflicts"]:
+        print(f"WARNING conflict: {c}")
     return 0
 
 

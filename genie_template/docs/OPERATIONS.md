@@ -1,6 +1,8 @@
 # Operating the Genie space
 
-This guide covers how this project is developed, released, monitored and kept healthy. It is the same for every
+This guide covers how this project is developed, released, monitored and kept healthy. For a step-by-step
+explanation of the CI/CD process from scratch (version history, raising pull requests, syncing the dev Genie UI,
+promotion dev → qa → prod), read `notebooks/Genie_CICD_Guide`. It is the same for every
 project made from the template. The names below (`gate_min_accuracy`, `alert_emails`, ...) are settings in
 `genie.config.yml`.
 
@@ -67,7 +69,7 @@ takes as long as the gate, usually minutes. If prod is broken *now*, roll back f
 
 | Question | Answer |
 |---|---|
-| What is in prod? | the latest `genie-prod-*` tag; the notebook (part E) proves it by comparing content hashes |
+| What is in prod? | the tag `genie-deployed-prod` (moved by every deploy and rollback) and the latest `genie-prod-*` release; the notebooks prove it by comparing content hashes |
 | What changed in a release? | its GitHub release notes; `python scripts/validate_space.py --release-notes <old> <new>` |
 | What did the dev UI look like on day X? | the `genie-dev-snapshot-*` tag of that day |
 | Which version produced a quality result? | the `version` (git commit) column of every monitoring table |

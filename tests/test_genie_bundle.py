@@ -255,3 +255,16 @@ def test_gate_thresholds_are_60_percent_with_no_wrong_answer_cap():
     assert G.evaluate({**run, "num_correct": 12, "num_bad": 5}, min_accuracy=0.60, max_bad=-1, min_graded=4)["passed"]
     assert not G.evaluate({**run, "num_correct": 10, "num_bad": 7}, min_accuracy=0.60, max_bad=-1, min_graded=4)["passed"]
     assert not G.evaluate({**run, "num_correct": 12, "num_bad": 5}, min_accuracy=0.60, max_bad=0, min_graded=4)["passed"]
+
+
+def test_dev_sync_applies_ui_edits_onto_main_without_reverting_it():
+    """The release syncs dev before deploying the merged commit: the base is the deployed version, so a change merged
+    since then is kept, and only real UI edits are applied."""
+    base = T.load_space()
+    main = T.copy_space(base)
+    main["config"]["sample_questions"].append({"id": "a" * 32, "question": ["merged after the deploy"]})
+    assert T.diff(base, base) == []                                   # no UI edit: nothing to sync
+    live = T.copy_space(base)
+    live["config"]["sample_questions"].append({"id": "b" * 32, "question": ["added in the UI"]})
+    merged, conflicts = T.merge3(base, main, live)
+    assert not conflicts and T.diff(main, merged) == ["+ added sample question: added in the UI"]

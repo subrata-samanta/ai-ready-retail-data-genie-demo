@@ -9,7 +9,8 @@
 #   prod          waits for an approval (required reviewers on the GitHub environment prod), then the same drift
 #                 gate, deploy, smoke test (restores the previous release if it fails), tag genie-prod-<UTC>-<sha>
 #                 and a GitHub release whose notes list every change in the space since the previous release
-#   every environment's deployment links to its live space (GitHub environment URL)
+#   every environment's deployment links to its live space (GitHub environment URL), and the tag
+#   genie-deployed-<env> is moved to the deployed commit: what each environment runs (the dev sync's base)
 #
 # One-time setup: notebooks/Genie_Project_Template (part B). Until an environment has DATABRICKS_HOST, its
 # steps are skipped with a notice.
@@ -81,6 +82,9 @@ jobs:
       - id: space
         if: steps.cfg.outputs.ready == 'true'
         run: python3 scripts/space_url.py -t dev >> "$GITHUB_OUTPUT"
+      - name: Record what dev runs
+        if: steps.cfg.outputs.ready == 'true'
+        run: git tag -f genie-deployed-dev "$GITHUB_SHA" && git push -f origin genie-deployed-dev
 
   qa:
     needs: dev
@@ -128,6 +132,9 @@ jobs:
       - id: space
         if: steps.cfg.outputs.ready == 'true'
         run: python scripts/space_url.py -t qa >> "$GITHUB_OUTPUT"
+      - name: Record what qa runs
+        if: steps.cfg.outputs.ready == 'true'
+        run: git tag -f genie-deployed-qa "$GITHUB_SHA" && git push -f origin genie-deployed-qa
       - id: gate
         name: Quality gate (health checks and benchmarks)
         if: steps.cfg.outputs.ready == 'true'
@@ -194,6 +201,8 @@ jobs:
       - name: Smoke test report
         if: always()
         run: python scripts/quality_report.py -t prod
+      - name: Record what prod runs
+        run: git tag -f genie-deployed-prod "$GITHUB_SHA" && git push -f origin genie-deployed-prod
       - name: Tag and publish the release
         run: |
           PREVIOUS=$(git tag -l 'genie-prod-*' --sort=-refname | head -n 1)

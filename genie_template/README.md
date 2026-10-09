@@ -20,7 +20,7 @@ runbook, regular care, and go-live and retirement checklists.
 | **Develop** | a personal `sandbox` target. Dev Genie UI edits are synced to git as pull requests. `make check / fix / diff / sql` |
 | **Review** | `genie-ci` on every pull request: project tests, validation, canonical form, every SQL run on dev data, readiness review, the change list, `bundle plan` for dev; plus a PR template and CODEOWNERS |
 | **Release** | dev → qa (drift gate, health checks, benchmark gate, smoke test, quality report for the approver) → approval → prod (drift gate, smoke test with auto-restore). Then a tag and a GitHub release with notes, and links from each environment to its live space |
-| **Version control** | release tags, dev UI snapshot tags, a pre-deploy backup of the live space, the deployed commit on every monitoring row |
+| **Version control** | release tags, dev UI snapshot tags, a `genie-deployed-<env>` tag per environment (what it runs now), a pre-deploy backup of the live space, the deployed commit on every monitoring row |
 | **Rollback** | `genie-rollback`: `to` = `previous` or any tag or commit; `what` = `space` (content only) or `bundle` (everything as it was), with approval |
 | **Operate** | nightly quality and usage jobs in prod, Delta result tables, an AI/BI dashboard and three SQL alerts (accuracy below the gate, monitoring stale, failing answers), failure and slow-run e-mails, delete protection on the prod space |
 | **Govern** | a service principal per environment, groups for users, developers and deployers, prod approvers, branch and tag protection, a production readiness review (`scripts/readiness.py`) |
@@ -79,7 +79,9 @@ notebook copies into each environment's catalog.
 ├── tests/                        your project's tests, no workspace needed: python tests/run_tests.py
 ├── notebooks/
 │   ├── Genie_Project_Template_source.py   setup + walkthrough (Databricks source format)
-│   └── Genie_Project_Template.ipynb       the same notebook, for reading on GitHub
+│   ├── Genie_Project_Template.ipynb       the same notebook, for reading on GitHub
+│   ├── Genie_CICD_Guide_source.py         the guide: how the whole CI/CD process works, from scratch (read-only)
+│   └── Genie_CICD_Guide.ipynb             the same guide, for reading on GitHub
 ├── docs/OPERATIONS.md            the operating model (roles, release, rollback, monitoring, runbook, checklists)
 ├── .github/
 │   ├── workflows/
@@ -127,7 +129,7 @@ The file is a bundle file, so `databricks bundle validate -t <env>` checks it an
 | **Promotion** | merge to `main` runs `genie-release`: dev → qa → approval → prod, always the same commit |
 | **Version control** | every change is a reviewed commit. Every prod release is a tag `genie-prod-<UTC>-<sha>` plus a GitHub release with the change list. Every dev UI state is a tag `genie-dev-snapshot-<time>`. Every quality result records the deployed commit |
 | **Gates** | `genie-ci` on pull requests. In qa: drift gate, health checks, benchmark gate, smoke test. Then a person approves prod |
-| **UI edits** | dev: exported to git hourly as a pull request. qa/prod: the release refuses to overwrite them (exit 2) until you adopt them or rerun with `allow_drift` |
+| **UI edits** | dev: exported to git hourly as a pull request. Only real UI edits (versus `genie-deployed-dev`) are applied onto `main`, item by item, so a change merged in the meantime is never undone. qa/prod: the release refuses to overwrite them (exit 2) until you adopt them or rerun with `allow_drift` |
 | **Safety** | the live space is backed up (build artifact) before every deploy. A plan that would delete or recreate the space is refused unless `allow_destroy`. A failed prod smoke test restores the previous release |
 | **Rollback** | `genie-rollback`: `to` = `previous` or any tag or commit; `what` = `space` (content only) or `bundle` (everything as it was) |
 | **Monitoring** | the `genie_quality` job (tables readable, not empty, fresh; benchmarks) and the `genie_usage` job (every question, status, feedback), nightly in prod. Results go to `<catalog>.<monitoring_schema>.genie_*`. Also deployed: the dashboard `<title> · monitoring` and the SQL alerts. E-mails go to `alert_emails` and alert notifications to `alert_subscribers`. The notebook (part I) also shows the evaluation trend, audit events, job runs and workflow runs |

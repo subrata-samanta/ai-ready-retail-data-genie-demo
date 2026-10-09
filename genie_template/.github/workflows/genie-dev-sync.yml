@@ -1,8 +1,9 @@
 # Version every change made in the dev Genie UI.
 #
 # Hourly, on demand, and at the start of every release:
-#   1. scripts/sync_from_workspace.py -t dev   exports the dev space into space/genie_space.yml
-#      (nothing to do until the first release has deployed dev)
+#   1. scripts/sync_from_workspace.py -t dev   compares the live dev space with the version last deployed to dev
+#      (tag genie-deployed-dev): only real UI edits count, and they are applied onto main item by item, so a change
+#      merged since that deploy is never reverted (nothing to do until the first release has deployed dev)
 #   2. if it changed: commit it on the branch genie/dev-sync, tag the commit genie-dev-snapshot-<UTC time>
 #      (dev's version history: every snapshot can be restored with genie-rollback), open or update a pull request
 #
@@ -44,6 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.GENIE_SYNC_TOKEN || github.token }}
+          fetch-depth: 0                       # the tag genie-deployed-dev: the sync's base
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -56,7 +58,7 @@ jobs:
           if [ -z "$DATABRICKS_HOST" ]; then echo "::notice::dev is not connected (no DATABRICKS_HOST); nothing to sync"; echo "ready=false" >> "$GITHUB_OUTPUT"; else echo "ready=true" >> "$GITHUB_OUTPUT"; fi
       - name: Export the dev space
         if: steps.cfg.outputs.ready == 'true'
-        run: python scripts/sync_from_workspace.py -t dev
+        run: python scripts/sync_from_workspace.py -t dev --base genie-deployed-dev
       - name: Commit, tag and open the sync pull request
         if: steps.cfg.outputs.ready == 'true'
         run: |

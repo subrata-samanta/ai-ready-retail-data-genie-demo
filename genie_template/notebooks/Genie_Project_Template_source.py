@@ -105,7 +105,8 @@
 # MAGIC ├── tests/                        tests of your project (no workspace needed): python tests/run_tests.py
 # MAGIC ├── notebooks/
 # MAGIC │   ├── Genie_Project_Template_source.py   this notebook (Databricks source)
-# MAGIC │   └── Genie_Project_Template.ipynb       the same, for reading on GitHub
+# MAGIC │   ├── Genie_Project_Template.ipynb       the same, for reading on GitHub
+# MAGIC │   └── Genie_CICD_Guide (.py / .ipynb)    the guide: how the whole CI/CD process works (read-only)
 # MAGIC ├── docs/OPERATIONS.md            operating model: roles, release, rollback, monitoring, runbook, go-live checklist
 # MAGIC ├── .github/
 # MAGIC │   ├── workflows/
@@ -817,6 +818,7 @@ if pr:
 # MAGIC | Every change | a commit on `main` that touched `space/genie_space.yml` (reviewed in a pull request) |
 # MAGIC | Every prod release | tag `genie-prod-<UTC time>-<commit>` + a GitHub release whose notes list the changes |
 # MAGIC | Every dev UI state | tag `genie-dev-snapshot-<time>` (from `genie-dev-sync`) |
+# MAGIC | What each environment runs now | tag `genie-deployed-<env>`, moved by every deploy and rollback |
 # MAGIC | Every deploy | a GitHub deployment per environment; the live space backed up as a build artifact |
 # MAGIC | In Databricks | every quality result carries the deployed commit (`version` in `genie_quality_runs`) |
 # MAGIC

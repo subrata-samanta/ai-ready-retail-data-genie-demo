@@ -153,7 +153,10 @@ any Genie space. Everything project-specific is in one config file, `genie.confi
 - tests;
 - [`notebooks/Genie_Project_Template.ipynb`](genie_template/notebooks/Genie_Project_Template.ipynb), which sets up
   Databricks and GitHub, imports your prototype space and walks it from a pull request to prod. It also covers
-  version control, drift protection, rollback, monitoring and a runbook.
+  version control, drift protection, rollback, monitoring and a runbook;
+- [`notebooks/Genie_CICD_Guide.ipynb`](genie_template/notebooks/Genie_CICD_Guide.ipynb), a read-only guide that explains
+  the whole process from scratch: version history, raising a pull request or syncing the dev Genie UI with GitHub, and
+  promotion dev → qa → prod.
 
 Copy the folder to the root of a new repository and follow [`genie_template/README.md`](genie_template/README.md).
 [`examples/freshcart_genie_project/`](examples/freshcart_genie_project/) applies the template to this repository's own

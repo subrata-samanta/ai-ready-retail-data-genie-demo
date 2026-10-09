@@ -11,6 +11,7 @@ Space definition (space/genie_space.yml: the bundle variable `genie_space`)
     neutralise(space, cat, sch)  an exported space (acme_dev.sales.orders) -> ${var.catalog}.${var.schema}.orders
     render(space, cat, sch)      the reverse: what the bundle deploys to a target
     diff(old, new)               the change list reviewers read (pull requests, drift, release notes)
+    merge3(base, ours, theirs)   apply UI edits (base -> theirs) onto main (ours), item by item: the dev sync
     validate(space)              static checks that need no workspace
     sql_statements(space)        every example and benchmark SQL, to run against an environment
     content_hash(space)          a short fingerprint: which version is live where
@@ -316,6 +317,51 @@ def diff(old: dict, new: dict) -> list[str]:
 
 def count_changes(changes: list[str]) -> int:
     return sum(1 for c in changes if not c.startswith(" "))
+
+
+def _set_list(space: dict, path: tuple, items: list) -> None:
+    node = space
+    for key in path[:-1]:
+        node = node.setdefault(key, {})
+    if items:
+        node[path[-1]] = items
+    else:
+        node.pop(path[-1], None)
+
+
+def merge3(base: dict, ours: dict, theirs: dict) -> tuple[dict, list[str]]:
+    """Apply the changes `theirs` made to `base` (edits in a Genie UI) onto `ours` (the definition on main), item by
+    item. Returns (merged, conflicts): a conflict is an item both changed differently; the UI's version is kept."""
+    base, ours, theirs = normalise(base or {}), normalise(ours or {}), normalise(theirs or {})
+    merged, conflicts = copy.deepcopy(ours), []
+    sections = [(p, k, "id") for p, k in _ID_SECTIONS.items()] + [(p, k, "identifier") for p, k in _IDENTIFIER_SECTIONS.items()]
+    for path, kind, key in sections:
+        b = {i.get(key): i for i in _get(base, path)}
+        o = {i.get(key): i for i in _get(ours, path)}
+        t = {i.get(key): i for i in _get(theirs, path)}
+        for k in b.keys() | t.keys():
+            if t.get(k) == b.get(k):
+                continue                                      # not touched in the UI
+            if o.get(k) != b.get(k) and o.get(k) != t.get(k):
+                conflicts.append(f"{kind} {_label(t.get(k) or b.get(k))}: changed on main and in the UI; kept the UI's")
+            if k in t:
+                o[k] = t[k]
+            else:
+                o.pop(k, None)
+        _set_list(merged, path, list(o.values()))
+    roots = {p[0] for p, _, _ in sections}
+    for key in (base.keys() | theirs.keys()) - roots:         # other settings, e.g. version: the UI's change wins
+        if theirs.get(key) != base.get(key):
+            if merged.get(key) not in (base.get(key), theirs.get(key)):
+                conflicts.append(f"{key}: changed on main and in the UI; kept the UI's")
+            if key in theirs:
+                merged[key] = theirs[key]
+            else:
+                merged.pop(key, None)
+    for root in roots:                                        # drop sections left empty
+        if root in merged and isinstance(merged[root], dict) and not any(merged[root].values()):
+            merged.pop(root)
+    return normalise(merged), conflicts
 
 
 # ============================================================================== space: validate
