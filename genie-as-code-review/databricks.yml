@@ -1,0 +1,72 @@
+# =============================================================================
+# Genie-as-Code (simple version) — FreshCart Sales & Stock Assistant
+# Purpose:  Manage the FreshCart Genie space as a versioned, promotable bundle resource
+#           with as few moving parts as possible: one JSON file, one resource, one workflow.
+#           Author in dev -> curate in UI -> `bundle generate` back to source ->
+#           test -> promote to QA -> Prod. See README.md for the full lifecycle.
+#           The full-featured version of the same space is ../genie_bundle.
+#
+# NOTE: Genie spaces need the `direct` deploy engine (Terraform engine is NOT supported).
+#
+# Authentication is not configured here: locally use `-p <profile>` (or DATABRICKS_CONFIG_PROFILE),
+# in CI the DATABRICKS_HOST / DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET environment variables.
+# =============================================================================
+
+bundle:
+  name: freshcart-genie-simple
+  # Genie spaces are only deployable with the direct engine (set explicitly so the requirement is visible).
+  engine: direct
+  databricks_cli_version: ">= 1.14.0"
+
+include:
+  - resources/*.yml
+
+variables:
+  # The FreshCart data bundle (../databricks) writes each environment to its own catalog. The space JSON
+  # is written with the dev catalog (freshcart_dev), exactly as `bundle generate` exports it from dev;
+  # bundles do not substitute variables inside that file, so CI points it at this catalog before
+  # deploying to qa or prod (see .github/workflows/deploy.yml).
+  catalog:
+    description: "Unity Catalog catalog holding this environment's FreshCart data."
+  warehouse_id:
+    description: "Serverless SQL warehouse that backs the Genie space."
+    # Resolved per target by name so each workspace finds its own warehouse.
+    # Change the name below to a serverless warehouse that exists in each target.
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+  title_suffix:
+    description: "Appended to the space title so environments can't be confused."
+    default: ""
+  business_users_group:
+    description: "Group allowed to ask questions in the space (CAN_RUN)."
+    default: freshcart-business-users
+
+targets:
+  # Authoring environment. development mode prefixes resource names with the
+  # deploying user so the data team doesn't clobber each other's spaces.
+  dev:
+    mode: development
+    default: true
+    # workspace:
+    #   host: https://<your-dev-workspace>.cloud.databricks.com    # pin the host once known (safer)
+    variables:
+      catalog: freshcart_dev
+
+  # qa and prod are deployed by CI. The root path is set so that only one copy is ever deployed,
+  # whoever deploys (production mode requires this when a user rather than a service principal deploys).
+  qa:
+    mode: production
+    workspace:
+      # host: https://<your-qa-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart_qa
+      title_suffix: " [QA]"
+
+  prod:
+    mode: production
+    workspace:
+      # host: https://<your-prod-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: freshcart

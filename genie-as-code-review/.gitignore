@@ -1,0 +1,14 @@
+# Databricks Asset Bundle state / artifacts
+.databricks/
+*.tfstate
+*.tfstate.backup
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Local creds / profiles — never commit
+.databrickscfg
+*.env
