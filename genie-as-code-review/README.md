@@ -1,43 +1,68 @@
-# Finance & P&L Analytics — Genie Space as Code
+# FreshCart Sales & Stock Assistant — Genie Space as Code (simple version)
 
-A Databricks Asset Bundle that manages an **AI/BI Genie space as a versioned,
-promotable resource**. The point is the lifecycle, not the chart: author the
-space in **dev**, curate it in the UI, capture the changes back into source,
-test it, and promote the *same artifact* to **QA** and **Prod** — all governed
-and reproducible across many workspaces.
+A Databricks Asset Bundle that manages the FreshCart **AI/BI Genie space as a versioned,
+promotable resource**, with as few moving parts as possible: one JSON file, one resource, one
+workflow. Author the space in **dev**, curate it in the UI, capture the changes back into source,
+test it, and promote the *same artifact* to **QA** and **Prod**.
+
+This is the lightweight alternative to [`../genie_bundle`](../genie_bundle/), which deploys the same
+FreshCart space with more safeguards: a drift check before every deploy, the quality gate as a job
+inside Databricks, an hourly sync of UI edits, and a rollback workflow. Start here; move to that one
+when you need those safeguards.
 
 ```
-databricks.yml                          bundle + engine:direct + dev/qa/prod targets
-resources/finance_pnl.genie_space.yml   the genie_spaces resource (-> file_path, warehouse)
-src/finance_pnl.geniespace.json         serialized space: tables, instructions, sample Qs, golden SQL
-tests/test_genie.py                     Conversation-API smoke test (promotion gate)
-.github/workflows/deploy.yml            CI/CD: validate -> dev -> QA (benchmark gate) -> prod
+databricks.yml                                bundle + engine:direct + dev/qa/prod targets
+resources/freshcart_assistant.genie_space.yml the genie_spaces resource (-> file_path, warehouse, permissions)
+src/freshcart_assistant.geniespace.json       serialized space: data sources, instructions, sample Qs,
+                                              example SQL, trusted function, benchmarks
+scripts/set_catalog.sh                        points the space at a target's catalog before deploying
+tests/test_genie.py                           Conversation-API smoke test (promotion gate)
+tests/benchmark_gate.py                       Genie benchmark evaluation gate (QA)
+.github/workflows/deploy.yml                  CI/CD: validate -> dev -> QA (benchmark gate) -> prod
 ```
+
+## What the space contains
+
+The content is a subset of the full FreshCart space, so both bundles give the same answers:
+
+- **Data sources:** the metric views `semantic.sales_metrics` and `semantic.inventory_metrics`, and the
+  tables `gold.dim_store` and `gold.dim_product` (with entity matching on names, regions and categories).
+- **Instructions:** the FreshCart business context (4-5-4 fiscal calendar, USD, when to ask a
+  clarification question, how stock works).
+- **4 trusted example queries** and the trusted function `semantic.fn_like_for_like_sales`.
+- **4 sample questions** and **8 benchmark questions** with their expected SQL.
 
 ## Prerequisites
 
-- **Databricks CLI ≥ 1.3.0** — `genie_spaces` resources require it.
-- The **`direct` deployment engine** (set in `databricks.yml`). The Terraform
-  engine does **not** support Genie spaces.
-- A **serverless SQL warehouse** in each target workspace. The bundle resolves it
-  by name via `lookup` — the default is `"Shared Endpoint"`; change it in
-  `databricks.yml` if yours differs.
-- Unity Catalog privileges on the `finance_demo.pnl` catalog/schema.
-- For the test: `pip install databricks-sdk` (and `jq` to read the bundle summary).
+- **Databricks CLI ≥ 1.14** (tested here with 1.18 and 1.20) and the **`direct` deployment engine**
+  (set in `databricks.yml`). The Terraform engine does **not** support Genie spaces.
+- **The FreshCart data** in each target workspace: deploy and run the data bundle in
+  [`../databricks`](../databricks/) first. It writes each environment to its own catalog:
 
-Fill in the real workspace hosts/profiles under `targets:` in `databricks.yml`
-before deploying (they ship as `<your-…-workspace>` placeholders).
+  | Target | Catalog |
+  |---|---|
+  | dev | `freshcart_dev` |
+  | qa | `freshcart_qa` |
+  | prod | `freshcart` |
 
-## Data prerequisite (per target workspace)
+- A **serverless SQL warehouse** in each target workspace. The bundle resolves it by name via `lookup`;
+  the default is `"Serverless Starter Warehouse"`. Change it in `databricks.yml` if yours differs.
+- The group **`freshcart-business-users`** (change `business_users_group` if yours differs). It gets
+  `CAN_RUN` on the space. Its members also need `SELECT` on the FreshCart tables, because Genie runs
+  queries as the person asking (the data bundle's `governance/01_security.sql` grants this).
+- For the tests: `pip install databricks-sdk`, and `jq` to read the bundle summary.
 
-The bundle deploys **only** the Genie space — it does not create tables. The
-`finance_demo.pnl` schema and its tables (`gl_actuals`, `budget_plan`,
-`product_hierarchy`, `cost_centers`) must already exist in each target workspace
-you deploy to.
+Authentication is not in `databricks.yml`: locally use `-p <profile>` (or `DATABRICKS_CONFIG_PROFILE`).
+Uncomment and fill in `host:` under each target once you know your workspace URLs (safer).
 
-> The catalog/schema names must be **identical across dev/QA/prod**, because the
-> Genie space references fully-qualified table names that aren't templated. If you
-> rename them, update the `identifier` values in `src/finance_pnl.geniespace.json`.
+## One JSON, three catalogs
+
+The JSON is written with the **dev catalog** (`freshcart_dev.gold...`, `freshcart_dev.semantic...`),
+exactly as `bundle generate` exports it from the dev space, so syncing UI edits gives a clean diff.
+Bundles do **not** substitute variables inside a `file_path` file, so before deploying to qa or prod,
+CI runs `scripts/set_catalog.sh <target>`. It reads the target's `catalog` variable from
+`databricks.yml` and rewrites the catalog in its fresh checkout. Never commit a rewritten file; locally,
+`git checkout src/` undoes it.
 
 ## Two ways to run this
 
@@ -62,27 +87,27 @@ source, and promote the *same artifact* forward.
 # 1. Validate syntax (resource recognized, variables resolve)
 databricks bundle validate -t dev
 
-# 2. Deploy to dev (development mode prefixes the name per user)
+# 2. Deploy to dev (development mode names it "[dev <you>] FreshCart Sales & Stock Assistant")
 databricks bundle deploy -t dev
 
-# 3. Curate in the Databricks UI — refine instructions, add data sources,
-#    add benchmark questions, certify answers.
+# 3. Curate in the Databricks UI — refine instructions, add example SQL,
+#    add benchmark questions.
 
-# 4. Capture those UI edits back into source — DABs do NOT auto-sync them:
-databricks bundle generate genie-space --resource finance_pnl --force
+# 4. Capture those UI edits back into source — bundles do NOT auto-sync them.
+#    This rewrites only the JSON, in the same format, so the diff shows just your edits:
+databricks bundle generate genie-space --resource freshcart_assistant --force
 #    (add --watch to poll continuously while you iterate)
 
 # 5. Review the diff like any code change, then commit:
-git diff src/finance_pnl.geniespace.json
+git diff src/freshcart_assistant.geniespace.json
 
-# 6. Gate promotion on the smoke test against the dev space:
+# 6. Smoke-test the dev space:
 export GENIE_SPACE_ID="$(databricks bundle summary -t dev -o json \
-  | jq -r '.resources.genie_spaces.finance_pnl.id')"
+  | jq -r '.resources.genie_spaces.freshcart_assistant.id')"
 python tests/test_genie.py
 
-# 7. Promote the same artifact downstream:
-databricks bundle deploy -t qa
-databricks bundle deploy -t prod
+# 7. Push to main: CI deploys dev and QA and runs the benchmark gate.
+#    Promote to prod with a manual run of the workflow (target: prod).
 ```
 
 ---
@@ -90,67 +115,95 @@ databricks bundle deploy -t prod
 ### Approach B — Adopt an existing Dev space via bind
 
 For a curated Dev space that is already live and must not be recreated. The bundle
-**adopts it in-place** — same space ID, same URL, chat history preserved — then
-promotes to QA/Prod as normal.
-
-> **Note:** `bundle deployment bind` for `genie_spaces` works as of CLI v1.5.0,
-> confirmed by testing. The official docs list does not yet include `genie_spaces`
-> but the command succeeds in practice.
+**adopts it in-place** (same space ID, same URL, chat history preserved), then
+promotes to QA/Prod as normal. `bundle deployment bind` works for `genie_spaces`
+(tested here with CLI 1.18 and 1.20).
 
 ```bash
 # 1. Pull the existing Dev space's definition into bundle source.
-#    Writes src/<key>.geniespace.json + resources/<key>.genie_space.yml
-databricks bundle generate genie-space --existing-id <dev-space-id> --key finance_pnl
+#    Writes src/freshcart_assistant.geniespace.json + resources/freshcart_assistant.genie_space.yml
+databricks bundle generate genie-space --existing-id <dev-space-id> --key freshcart_assistant --force
 
 # 2. Fix up the generated resource YAML (see "After generate" below).
 
 # 3. Bind — the bundle adopts the existing space. Next deploy updates it in-place.
-databricks bundle deployment bind finance_pnl <dev-space-id> --auto-approve
-#    → "Successfully bound genie_space with id '...'"
+databricks bundle deployment bind freshcart_assistant <dev-space-id> --auto-approve
+#    → "Successfully bound genie_space with an id '...'"
 
-# 4. Confirm zero drift between source and the live space:
-databricks bundle plan
-#    → Plan: 0 to add, 0 to change, 0 to delete, 1 unchanged
+# 4. Check what the next deploy changes:
+databricks bundle plan -t dev
+#    → Plan: 0 to add, 1 to change, ...  The dev target runs in development mode, so the
+#      deploy renames the space to "[dev <you>] ...". Expect that change; anything else is drift.
 
-# 5. From here the loop is identical to Approach A:
-#    Curate in UI → generate --resource finance_pnl --force → commit → test → promote
-databricks bundle deploy -t qa
-databricks bundle deploy -t prod
+# 5. From here the loop is identical to Approach A.
 ```
 
-**After `generate` — two fixups before binding:**
-1. **Warehouse** — `generate` bakes Dev's literal `warehouse_id` into the YAML.
+**After `generate --existing-id` — three fixups before binding:**
+1. **Warehouse** — `generate` writes Dev's literal `warehouse_id` into the YAML.
    Replace it with `${var.warehouse_id}` so QA/Prod resolve their own warehouse
    by name via the `lookup`.
-2. **`parent_path`** — `generate` writes a hardcoded path pointing at your personal
-   `.bundle` dev directory. Remove this line entirely; the bundle will use the
-   correct workspace path per target on deploy.
-3. **Table identifiers** — these live in the JSON and aren't templated. If QA/Prod
-   use the **same** catalog/schema names → no change. If **different** → find/replace
-   in `src/finance_pnl.geniespace.json` before deploying downstream.
+2. **`parent_path`** — `generate` writes the space's current folder. Remove this line;
+   the bundle uses the correct workspace path per target on deploy.
+3. **Title and permissions** — `generate` writes the live space's title and description, and no
+   permissions. Restore `title` (with `${var.title_suffix}`) and `permissions` from this
+   repository's version of the YAML.
+
+The table names in the JSON need no fixup as long as you export from the dev space
+(catalog `freshcart_dev`); see "One JSON, three catalogs".
 
 ---
 
-Teardown: `databricks bundle destroy -t <target>` removes the bundle-managed space
-for that target. Drop the `finance_demo.pnl` schema separately if you also
-want to remove the underlying tables.
+## CI/CD (`.github/workflows/deploy.yml`)
 
-## Gotchas (call these out — they're the real-world caveats)
+The workflow expects this folder to be the root of its repository (copy it out), with:
 
-- **`bundle deployment bind` works for Genie spaces (CLI ≥ 1.5.0), despite the docs.**
-  The official bind docs omit `genie_spaces` from the supported list, but the command
-  succeeds. Use Approach B to adopt an existing space rather than recreating it.
+| GitHub setting | Value |
+|---|---|
+| Variables `DEV_DATABRICKS_HOST`, `QA_DATABRICKS_HOST`, `PROD_DATABRICKS_HOST` | workspace URLs |
+| Secrets `DEV_/QA_/PROD_SP_CLIENT_ID`, `DEV_/QA_/PROD_SP_CLIENT_SECRET` | one service principal per environment (OAuth) |
+| Environments `dev`, `qa`, `prod` | `prod` (and optionally `qa`) with required reviewers |
+
+| Trigger | Jobs |
+|---|---|
+| Pull request | validate |
+| Push to `main` | validate → dev + smoke test → QA + benchmark gate |
+| Manual run, target `dev` / `qa` / `prod` | the same chain up to that target; prod also waits for approval and is smoke-tested |
+
+Prod is only deployed by a manual run, and only after the QA gate passed on the same commit.
+The gate fails when accuracy on the automatically graded benchmarks is below 60%
+(`ACCURACY_THRESHOLD`) or when nothing could be graded; benchmarks Genie can't grade
+(NEEDS_REVIEW) are listed but don't count.
+
+## Testing
+
+From the repository root, `python tests/run_tests.py` runs `tests/test_simple_genie_bundle.py`:
+
+- the JSON is in `bundle generate`'s format, sorted, valid, and uses only the dev catalog;
+- every example and benchmark SQL runs on the local FreshCart warehouse;
+- the target catalogs match the data bundle's;
+- the workflow runs the right jobs for each trigger;
+- with the Databricks CLI installed, the workflow's own steps run job by job against a stand-in
+  workspace (`tests/fake_workspace.py`): deploy to dev, qa and prod on their own catalogs, the smoke
+  test, the benchmark gate (passing, and failing after a bad UI edit), and the `generate` round trip.
+
+The stand-in workspace answers questions with the space's trusted example SQL; it does not test
+Genie itself. Run the smoke test and the gate against a real workspace before relying on them.
+
+Teardown: `databricks bundle destroy -t <target>` removes the bundle-managed space for that target.
+The FreshCart data is managed by the data bundle in `../databricks`.
+
+## Gotchas (the real-world caveats)
+
 - **UI edits don't auto-sync.** They live in the workspace until you run
-  `bundle generate genie-space --resource <key> --force`. Make this step part of your
-  workflow — skip it and curations get lost on the next deploy.
-- **`generate` bakes in a hardcoded `parent_path` and `warehouse_id`.** Always clean
-  these up after generating: remove `parent_path`, replace `warehouse_id` with
-  `${var.warehouse_id}`.
-- **IDs are required, validated, and must be sorted.** Every object in
-  `sample_questions`, `text_instructions`, `example_question_sqls`, and `benchmarks`
-  needs a lowercase 32-hex UUID (`uuid.uuid4().hex`). All id-bearing lists must be
-  sorted ascending by id. `bundle generate` handles this automatically — hand-editing
-  the JSON requires care.
-- **Table identifiers must resolve in every target** — hence identical catalog/schema
-  names across dev/QA/prod (or tokenize them yourself before deploying downstream).
-- **`direct` engine + CLI ≥ 1.3.0** are hard requirements for `genie_spaces`.
+  `bundle generate genie-space --resource freshcart_assistant --force`. Make this step part of your
+  workflow; skip it and curations are lost on the next deploy.
+- **Variables are not resolved inside the JSON.** Hence the dev catalog in the file and
+  `scripts/set_catalog.sh` for qa/prod.
+- **IDs are required, validated, and must be sorted.** Every object in `sample_questions`,
+  `text_instructions`, `example_question_sqls`, `sql_functions` and `benchmarks` needs a lowercase
+  32-hex id (`uuid.uuid4().hex`), and id-bearing lists are sorted by id. `bundle generate` handles
+  this; hand edits need care (the repository test checks it).
+- **Version 2 spaces reject version 1 column fields** (`get_example_values`, `build_value_dictionary`);
+  use `enable_format_assistance` and `enable_entity_matching`.
+- **Development mode renames the space** to `[dev <deployer>] ...`, including a space adopted with `bind`.
+- **`direct` engine + CLI ≥ 1.14** are hard requirements for this bundle.
