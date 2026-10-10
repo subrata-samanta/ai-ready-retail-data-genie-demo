@@ -1,0 +1,17 @@
+# The Genie space. Everything inside it (data sources, instructions, sample questions, example SQL,
+# trusted functions, benchmarks) is in src/genie_space.geniespace.json, written by
+#   python scripts/adopt_space.py --space-id <id>                     (once, from your existing space)
+#   databricks bundle generate genie-space --resource genie_space --force   (after every UI edit in dev)
+# Settings that differ per environment are bundle variables (databricks.yml), not edits to this file.
+resources:
+  genie_spaces:
+    genie_space:
+      title: "${var.space_title}${var.title_suffix}"
+      description: ${var.space_description}
+      file_path: ../src/genie_space.geniespace.json
+      warehouse_id: ${var.warehouse_id}
+      # The bundle sets the space's sharing list: list every group that should use the space. Its members
+      # also need SELECT (and USE CATALOG / USE SCHEMA) on the data: Genie runs queries as the person asking.
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.business_users_group}

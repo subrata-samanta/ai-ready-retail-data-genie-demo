@@ -144,6 +144,11 @@ space, rollback, benchmark gates, approvals and drift protection in [`.github/wo
 The complete guide, which runs the real Databricks CLI end to end, is
 [`notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb`](notebooks/Genie_CICD_with_Declarative_Automation_Bundles.ipynb).
 
+Doing the same for your own Genie space? [`RUN_ON_REAL_DATABRICKS.md`](RUN_ON_REAL_DATABRICKS.md) walks through running
+this demo on a real workspace and then applying the approach to your company's space with
+[`genie-space-template/`](genie-space-template/): export the space you already have into code, check its AI readiness,
+and promote it dev → QA (benchmark gate) → prod, where it takes over the existing space in place.
+
 ## Repository map
 
 ```text
@@ -159,6 +164,8 @@ tests/               pipeline, bundles and notebook tests, incl. raw-to-gold rec
 docs_src/ -> docs/   documentation templates and the rendered docs with real numbers
 notebooks/           every table step by step; end to end on Databricks; dev to prod with DAB and GitHub
 genie_bundle/        the Genie Agent as a Declarative Automation Bundle (space, quality-gate job, sandbox/dev/qa/prod)
+genie-as-code-review/  the same space as a simple bundle: one JSON, one resource, one workflow
+genie-space-template/ that simple bundle made reusable for your own Genie space (RUN_ON_REAL_DATABRICKS.md)
 ```
 
 ## Design decisions in one list

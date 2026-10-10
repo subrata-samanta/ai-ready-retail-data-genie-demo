@@ -1,0 +1,76 @@
+# =============================================================================
+# Genie space as code — template for YOUR company's Genie space
+#
+# The same approach as the FreshCart demo (../genie-as-code-review): one JSON file holds the space, one
+# bundle resource deploys it, one GitHub workflow promotes it dev -> qa -> prod.
+#
+# Fill in every CHANGE_ME below (scripts/check_space.py fails while one is left), then follow README.md.
+# Genie spaces need the `direct` deploy engine and Databricks CLI >= 1.14 (Terraform engine NOT supported).
+#
+# Authentication is not configured here: locally use `-p <profile>` (or DATABRICKS_CONFIG_PROFILE),
+# in CI the DATABRICKS_HOST / DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET environment variables.
+# =============================================================================
+
+bundle:
+  name: CHANGE_ME-genie            # e.g. sales-genie; also names the bundle's folder in the workspace
+  engine: direct
+  databricks_cli_version: ">= 1.14.0"
+
+include:
+  - resources/*.yml
+
+variables:
+  # The space JSON is written with the DEV catalog, exactly as `bundle generate` exports it from the dev
+  # space. Bundles don't substitute variables inside that file, so scripts/set_catalog.py rewrites it to
+  # this catalog before qa and prod deploys. One catalog for every environment? Give all targets the same.
+  catalog:
+    description: "Unity Catalog catalog holding this environment's data."
+  warehouse_id:
+    description: "SQL warehouse (serverless or pro) that backs the Genie space."
+    # Resolved per target by name, so each workspace finds its own warehouse.
+    lookup:
+      warehouse: "CHANGE_ME warehouse name"         # e.g. "Serverless Starter Warehouse"
+  space_title:
+    description: "Title business users see."
+    default: "CHANGE_ME space title"                # scripts/adopt_space.py copies it from your space
+  space_description:
+    description: "Description shown under the title."
+    default: "CHANGE_ME space description"          # scripts/adopt_space.py copies it from your space
+  title_suffix:
+    description: "Appended to the title so environments can't be confused."
+    default: ""
+  business_users_group:
+    description: "Account group allowed to ask questions in the space (CAN_RUN)."
+    default: CHANGE_ME-business-users
+
+targets:
+  # Authoring environment. development mode names the space "[dev <you>] <title>", so developers
+  # don't overwrite each other's copies.
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://CHANGE_ME-dev.cloud.databricks.com
+    variables:
+      catalog: CHANGE_ME_dev_catalog
+
+  # qa and prod are deployed by CI, each by its own service principal. The deployment state (which space
+  # belongs to the target) lives under root_path, in the deployer's home folder, so only one copy is ever
+  # deployed. That is also why an existing space is adopted into qa or prod by CI (the workflow's
+  # adopt_space_id input), not from a laptop. One workspace for every environment? Give all targets the same host.
+  qa:
+    mode: production
+    workspace:
+      host: https://CHANGE_ME-qa.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: CHANGE_ME_qa_catalog
+      title_suffix: " [QA]"
+
+  prod:
+    mode: production
+    workspace:
+      host: https://CHANGE_ME-prod.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: CHANGE_ME_prod_catalog
