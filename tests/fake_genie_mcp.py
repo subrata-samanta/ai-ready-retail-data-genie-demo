@@ -5,8 +5,10 @@ It serves just what the notebook calls:
     (Streamable HTTP; one answers with plain JSON, the other with server-sent events), each with the tools
     Databricks exposes for a space: query_space_<id>(query) and poll_response_<id>(conversation_id, message_id);
   * the Genie spaces REST API (title, description, sample questions) and the current user;
-  * the serving-endpoints list and an OpenAI-compatible chat endpoint whose "LLM" routes by keyword overlap
-    between the question and each tool's description, and checks the message format a real endpoint would reject.
+  * the serving-endpoints list and an OpenAI-compatible chat endpoint (both the /invocations route and the
+    /serving-endpoints/chat/completions route the openai client uses). Its "LLM" routes by keyword overlap between
+    the question and each tool's description (tool calling), or answers the JSON router and synthesis prompts of
+    notebooks/LLM_Orchestration_Two_Genie_MCP_Demo.ipynb; it checks the message format a real endpoint would reject.
 
 Every request must carry `Authorization: Bearer <TOKEN>`. It is a test double, not an emulator of Databricks.
 
@@ -195,10 +197,55 @@ def _completion(message: dict) -> dict:
             "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}}
 
 
+def _route_json(system: str, question: str) -> str:
+    """The JSON router of notebooks/LLM_Orchestration_Two_Genie_MCP_Demo.ipynb: A, B, BOTH or NONE."""
+    q, scores = _words(question), {}
+    for line in system.splitlines():
+        letter = re.search(r"Space ([AB])\b", line)
+        space_id = next((sid for sid in SPACES if sid in line), None)
+        if letter and space_id:
+            scores[letter.group(1)] = len(q & _words(line))
+    hits = sorted(k for k, v in scores.items() if v > 0)
+    if not hits:
+        route = "NONE" if '"NONE"' in system else "BOTH"
+    elif len(hits) == 2 and " and " in question.lower():
+        route = "BOTH"
+    else:
+        route = max(hits, key=lambda k: scores[k])
+    out = {"route": route, "question_a": question if route in ("A", "BOTH") else "",
+           "question_b": question if route in ("B", "BOTH") else "", "reason": f"keyword overlap {scores}"}
+    return f"Routing decision:\n```json\n{json.dumps(out, indent=2)}\n```"      # fenced, with a preamble
+
+
+def _collect_answers(node, found: list) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "answer" and isinstance(value, str) and value:
+                found.append(value)
+            elif key == "textAttachments" and isinstance(value, list):
+                found += [v for v in value if isinstance(v, str)]
+            else:
+                _collect_answers(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_answers(value, found)
+    elif isinstance(node, str) and node.startswith("{"):
+        with contextlib.suppress(ValueError):
+            _collect_answers(json.loads(node), found)
+
+
 def _llm(body: dict) -> dict:
     messages, tools = body["messages"], body.get("tools") or []
     last = messages[-1]
     text = last.get("content") or ""
+    system = next((m.get("content") or "" for m in messages if m["role"] == "system"), "")
+    if not tools and '"route"' in system:
+        return _completion({"role": "assistant", "content": _route_json(system, text)})
+    if not tools and "supplied Genie tool results" in system:
+        found: list[str] = []
+        _collect_answers(json.loads(text), found)
+        return _completion({"role": "assistant", "content": "From the Genie spaces: " + (
+            " ".join(dict.fromkeys(found)) or "the tools returned no answer yet, so I cannot answer.")})
     if not tools:
         if "Reply with the single word OK" in text:
             return _completion({"role": "assistant", "content": "OK"})
@@ -275,6 +322,20 @@ async def invocations(request: Request):
     return JSONResponse(_llm(body))
 
 
+async def chat_completions(request: Request):
+    """The OpenAI-compatible route (base_url <host>/serving-endpoints, model = endpoint name)."""
+    body = await request.json()
+    if body.get("model") not in {e["name"] for e in LLM_ENDPOINTS if e["task"] == "llm/v1/chat"}:
+        return JSONResponse({"error_code": "RESOURCE_DOES_NOT_EXIST",
+                             "message": f"Endpoint {body.get('model')} not found"}, 404)
+    with STATE.lock:
+        STATE.llm_requests.append(body)
+    problem = _validate_messages(body.get("messages") or [])
+    if problem:
+        return JSONResponse({"error_code": "BAD_REQUEST", "message": problem}, 400)
+    return JSONResponse(_llm(body))
+
+
 async def not_found(request: Request):
     return JSONResponse({"error_code": "ENDPOINT_NOT_FOUND", "message": f"No API found for {request.url.path}"}, 404)
 
@@ -295,6 +356,7 @@ def _app() -> Starlette:
     routes = [Route("/api/2.0/preview/scim/v2/Me", me),
               Route("/api/2.0/genie/spaces/{space_id}", get_space),
               Route("/api/2.0/serving-endpoints", list_endpoints),
+              Route("/serving-endpoints/chat/completions", chat_completions, methods=["POST"]),
               Route("/serving-endpoints/{name}/invocations", invocations, methods=["POST"])]
     for child in mcp_apps:
         routes += child.routes
@@ -330,6 +392,10 @@ class FakeGenieWorkspace:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
+        with STATE.lock:                        # every stand-in starts with a clean log
+            STATE.messages.clear()
+            STATE.tool_calls.clear()
+            STATE.llm_requests.clear()
         ws = cls(port)
         ws._thread.start()
         deadline = time.time() + 15

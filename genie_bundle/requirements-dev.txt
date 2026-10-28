@@ -5,4 +5,5 @@ sqlglot>=25          # parses the data bundle's SQL as Databricks SQL in tests/t
 pandas               # preinstalled on Databricks; the end-to-end notebook uses it (tests/test_databricks_notebook.py)
 pynacl               # encrypts GitHub secrets in the CI/CD notebook (tests/test_cicd_notebook.py)
 mcp>=2.3             # the official MCP server SDK: the stand-in Genie MCP servers in tests/test_genie_mcp_router_notebook.py
-uvicorn               # serves those stand-ins
+uvicorn              # serves those stand-ins
+openai               # the LLM client of notebooks/LLM_Orchestration_Two_Genie_MCP_Demo.ipynb (its test)

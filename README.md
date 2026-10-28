@@ -147,6 +147,9 @@ The complete guide, which runs the real Databricks CLI end to end, is
 Want to see MCP in action? [`notebooks/Genie_MCP_Router_Demo.ipynb`](notebooks/Genie_MCP_Router_Demo.ipynb) connects
 to two Genie spaces you already have through their managed MCP servers, and an LLM (a Foundation Model API endpoint)
 decides which space answers each question: one, both, or neither. Paste the two space IDs and run it. Nothing is deployed.
+[`notebooks/LLM_Orchestration_Two_Genie_MCP_Demo.ipynb`](notebooks/LLM_Orchestration_Two_Genie_MCP_Demo.ipynb) shows the
+same with an explicit orchestrator: the LLM returns a JSON route (A, B, BOTH or NONE) and then writes the final answer
+from what each Genie space returned.
 
 ## Repository map
 
