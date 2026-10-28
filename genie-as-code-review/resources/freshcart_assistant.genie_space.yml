@@ -1,0 +1,19 @@
+# Genie space resource — the single starring artifact of this bundle.
+# The serialized definition (tables, instructions, sample questions, example SQL, benchmarks)
+# lives in src/freshcart_assistant.geniespace.json. Curate in the UI, then run
+#   databricks bundle generate genie-space --resource freshcart_assistant --force
+# to capture those edits back into that JSON before promoting.
+resources:
+  genie_spaces:
+    freshcart_assistant:
+      title: "FreshCart Sales & Stock Assistant${var.title_suffix}"
+      description: >-
+        Ask about sales, margin, baskets, promotions and stock across FreshCart stores and online.
+        Figures are USD, exclude tax and use the FreshCart fiscal calendar.
+      file_path: ../src/freshcart_assistant.geniespace.json
+      warehouse_id: ${var.warehouse_id}
+      # Without this only the deployer (the CI service principal in qa/prod) could open the space.
+      # Business users also need SELECT on the FreshCart tables: Genie runs queries as the person asking.
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.business_users_group}
